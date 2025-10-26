@@ -223,7 +223,9 @@ export function useChat<M = unknown, D = {}, T = {}>(
     const cb = () => forceRender({});
     const listeners = getListeners(id);
     listeners.add(cb);
-    return () => listeners.delete(cb);
+    return () => {
+      listeners.delete(cb); // do not return anything
+    };
   }, [id]);
 
   /* ----------  STATE SETTERS  ---------- */
