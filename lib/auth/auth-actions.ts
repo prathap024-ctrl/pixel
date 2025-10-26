@@ -13,7 +13,7 @@ export const SignUp = async (data: any) => {
       },
       asResponse: true,
     });
-    if (!response.user) {
+    if (!response) {
       throw new Error("User not found");
     }
   } catch (error) {
