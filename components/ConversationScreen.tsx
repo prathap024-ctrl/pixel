@@ -40,7 +40,7 @@ function ConversationScreen({ messages, isLoading, regenerate }: Props) {
   const showLoader =
     isLoading &&
     msg.id === messages.at(-1)?.id &&
-    msg.parts.every((part) => part.text.length === 0);
+    msg.parts.every((part) => !("text" in part) || part.text.length === 0);
 
   const handleCopy = useCallback((text: string) => {
     navigator.clipboard.writeText(text);
