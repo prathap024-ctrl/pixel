@@ -5,6 +5,6 @@ export interface LoginSchema {
 
 export interface SignUpSchema extends LoginSchema {
   name: string;
-  phone: string;
+  phone?: string;
   confirmPassword: string;
 }

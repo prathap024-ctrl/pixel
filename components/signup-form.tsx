@@ -28,7 +28,7 @@ function SignupForm({ className, ...props }: React.ComponentProps<"form">) {
     handleSubmit,
     formState: { errors },
   } = useForm<SignUpSchema>({
-    resolver: zodResolver(zodSignUpSchema),
+    resolver: zodResolver(zodSignUpSchema!),
   });
 
   const onSubmit: SubmitHandler<SignUpSchema> = async (data) => {

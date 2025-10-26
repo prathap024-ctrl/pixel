@@ -8,7 +8,7 @@ export const zodLoginSchema = z.object({
 export const zodSignUpSchema = zodLoginSchema
   .extend({
     name: z.string(),
-    phone: z.string(),
+    phone: z.string().optional(),
     confirmPassword: z.string(),
   })
   .refine((data: any) => data.password === data.confirmPassword, {
