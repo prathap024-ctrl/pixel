@@ -54,9 +54,8 @@ function ConversationScreen({ messages, isLoading, regenerate }: Props) {
   }, []);
 
   const isStreamingComplete = !msg.parts.some(
-    (part) => part.state === "streaming"
+    (part) => "state" in part && part.state === "streaming"
   );
-
   return (
     <div>
       <AnimatePresence mode="wait">
