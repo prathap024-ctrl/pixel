@@ -28,7 +28,6 @@ interface FileData {
 }
 
 interface ComposerProps extends React.ComponentProps<"div"> {
-  id: string;
   input: string;
   setInput: (value: string) => void;
   model: string;
