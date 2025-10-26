@@ -13,7 +13,6 @@ import { CopyCheck, CopyIcon, RefreshCcwIcon } from "lucide-react";
 import { Action, Actions } from "./ai-elements/actions";
 import { toast } from "sonner";
 import { SidebarMenuSkeleton } from "./ui/sidebar";
-import { MessageActions } from "./MessageActions";
 
 interface Props {
   messages: UIMessage[];
