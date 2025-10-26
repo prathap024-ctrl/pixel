@@ -741,7 +741,7 @@ export function useChat<M = unknown, D = {}, T = {}>(
                 : p
             ),
           };
-          onFinish?.(finalized);
+          onFinish?.(finalized as UIMessage<M, D, T>);
           return finalized;
         });
 
