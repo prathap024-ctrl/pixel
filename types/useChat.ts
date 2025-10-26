@@ -154,7 +154,7 @@ export type WorkerMessage = WorkerDataMessage | WorkerErrorMessage;
 // --- Chat State ---
 
 export interface GlobalChatState {
-  messages: UIMessage<M, D, T>[];
+  messages: UIMessage[];
   input: string;
   isLoading: boolean;
   error?: Error;
