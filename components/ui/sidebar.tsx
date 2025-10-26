@@ -54,18 +54,18 @@ function useSidebar() {
 }
 
 function SidebarProvider({
-  defaultOpen = true,
+  defaultOpen = false,
   open: openProp,
   onOpenChange: setOpenProp,
-  openMobile,
-  setOpenMobile,
+  openMobile = false,
+  setOpenMobile = () => {},
   className,
   style,
   children,
   ...props
 }: React.ComponentProps<"div"> & {
   openMobile?: boolean | undefined;
-  setOpenMobile?: (open: boolean) => void | undefined;
+  setOpenMobile?: ((open: boolean) => void) | undefined;
   defaultOpen?: boolean;
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
@@ -75,27 +75,31 @@ function SidebarProvider({
 
   // This is the internal state of the sidebar.
   // We use openProp and setOpenProp for control from outside the component.
-  const [_open, _setOpen] = React.useState(defaultOpen);
+  const [_open, _setOpen] = React.useState<boolean>(defaultOpen);
   const open = openProp ?? _open;
   const setOpen = React.useCallback(
-    (value: boolean | ((value: boolean) => boolean)) => {
-      const openState = typeof value === "function" ? value(open) : value;
+    (value: boolean | ((prev: boolean) => boolean)) => {
+      const openState = typeof value === "function" ? value(_open) : value;
       if (setOpenProp) {
         setOpenProp(openState);
       } else {
         _setOpen(openState);
       }
 
-      // This sets the cookie to keep the sidebar state.
       document.cookie = `${SIDEBAR_COOKIE_NAME}=${openState}; path=/; max-age=${SIDEBAR_COOKIE_MAX_AGE}`;
     },
-    [setOpenProp, open]
+    [setOpenProp, _open]
   );
 
   // Helper to toggle the sidebar.
   const toggleSidebar = React.useCallback(() => {
-    return isMobile ? setOpenMobile((open) => !open) : setOpen((open) => !open);
-  }, [isMobile, setOpen, setOpenMobile]);
+    if (isMobile) {
+      setOpenMobile?.(!openMobile);
+    } else {
+      // setOpen accepts either a boolean or a function
+      setOpen((prevOpen) => !prevOpen);
+    }
+  }, [isMobile, setOpen, setOpenMobile, openMobile]);
 
   // Adds a keyboard shortcut to toggle the sidebar.
   React.useEffect(() => {
