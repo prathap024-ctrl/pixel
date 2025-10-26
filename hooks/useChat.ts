@@ -175,41 +175,43 @@ export function useChat<M = unknown, D = {}, T = {}>(
   }, []);
 
   /* ----------  PERSISTENCE  ---------- */
-
   useEffect(() => {
-    if (!persist || typeof window === "undefined") return;
-
-    try {
-      const raw = localStorage.getItem(storageKey);
-      if (raw) {
-        const { messages, input } = JSON.parse(raw);
-        state.messages = messages || [];
-        state.input = input || "";
-        notify(id);
+    if (persist && typeof window !== "undefined") {
+      try {
+        const raw = localStorage.getItem(storageKey);
+        if (raw) {
+          const { messages, input } = JSON.parse(raw);
+          state.messages = messages || [];
+          state.input = input || "";
+          notify(id);
+        }
+      } catch (err) {
+        console.error("[useChat] Failed to load from localStorage:", err);
       }
-    } catch (err) {
-      console.error("[useChat] Failed to load from localStorage:", err);
+
+      const save = () => {
+        try {
+          localStorage.setItem(
+            storageKey,
+            JSON.stringify({
+              messages: state.messages,
+              input: state.input,
+            })
+          );
+        } catch (err) {
+          console.error("[useChat] Failed to save to localStorage:", err);
+        }
+      };
+
+      const listeners = getListeners(id);
+      listeners.add(save);
+      return () => listeners.delete(save);
     }
 
-    const save = () => {
-      try {
-        localStorage.setItem(
-          storageKey,
-          JSON.stringify({
-            messages: state.messages,
-            input: state.input,
-          })
-        );
-      } catch (err) {
-        console.error("[useChat] Failed to save to localStorage:", err);
-      }
-    };
-
-    const listeners = getListeners(id);
-    listeners.add(save);
-    return () => listeners.delete(save);
+    return undefined; // Explicit return for the other case
   }, [persist, storageKey, id]);
 
+  
   /* ----------  LOCAL STATE SYNC  ---------- */
 
   const [, forceRender] = useState({});
