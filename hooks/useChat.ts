@@ -109,9 +109,11 @@ function safeJsonParse(str: string): any {
 
 /* ------------------  HOOK  ------------------ */
 
-export function useChat<M = unknown, D = {}, T = {}>(
-  opts: UseChatOptions<M, D, T> = {}
-): UseChatHelpers<M, D, T> {
+export function useChat<
+  M = unknown,
+  D extends Record<string, any> = Record<string, any>,
+  T extends Record<string, any> = Record<string, any>
+>(opts: UseChatOptions<M, D, T> = {}): UseChatHelpers<M, D, T> {
   const {
     id = "chat",
     initialMessages = [],
