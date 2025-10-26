@@ -205,13 +205,16 @@ export function useChat<M = unknown, D = {}, T = {}>(
 
       const listeners = getListeners(id);
       listeners.add(save);
-      return () => listeners.delete(save);
+
+      // ✅ Cleanup function must return void
+      return () => {
+        listeners.delete(save); // do not return anything
+      };
     }
 
-    return undefined; // Explicit return for the other case
+    // no cleanup needed if persist is false
   }, [persist, storageKey, id]);
 
-  
   /* ----------  LOCAL STATE SYNC  ---------- */
 
   const [, forceRender] = useState({});
