@@ -2,8 +2,8 @@
 
 export type UIMessage<
   METADATA = unknown,
-  DATA_PARTS extends Record<string, any> = {},
-  TOOLS extends Record<string, any> = {}
+  DATA_PARTS extends Record<string, any> = Record<string, any>, // Add default constraint
+  TOOLS extends Record<string, any> = Record<string, any>
 > = {
   id: string;
   role: "system" | "user" | "assistant";
@@ -162,7 +162,11 @@ export interface GlobalChatState {
 
 // --- Hook Options ---
 
-export type UseChatOptions<M = unknown, D = {}, T = {}> = {
+export type UseChatOptions<
+  M = unknown,
+  D extends Record<string, any> = Record<string, any>,
+  T extends Record<string, any> = Record<string, any>
+> = {
   id?: string;
   initialMessages?: UIMessage<M, D, T>[];
   initialInput?: string;
@@ -189,7 +193,11 @@ export type UseChatOptions<M = unknown, D = {}, T = {}> = {
 
 // --- Hook Helpers ---
 
-export type UseChatHelpers<M = unknown, D = {}, T = {}> = {
+export type UseChatHelpers<
+  M = unknown,
+  D extends Record<string, any> = Record<string, any>,
+  T extends Record<string, any> = Record<string, any>
+> = {
   messages: UIMessage<M, D, T>[];
   error: Error | undefined;
   append: (
