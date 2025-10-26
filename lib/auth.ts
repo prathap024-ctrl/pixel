@@ -4,7 +4,6 @@ import { PrismaClient } from "@/lib/generated/prisma";
 import { nextCookies } from "better-auth/next-js";
 // If your Prisma file is located elsewhere, you can change the path
 
-
 const prisma = new PrismaClient();
 export const auth = betterAuth({
   database: prismaAdapter(prisma, {
@@ -26,5 +25,5 @@ export const auth = betterAuth({
       },
     },
   },
-  plugins:[nextCookies()]
+  plugins: [nextCookies()],
 });

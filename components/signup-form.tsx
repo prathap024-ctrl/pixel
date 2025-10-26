@@ -28,16 +28,16 @@ function SignupForm({ className, ...props }: React.ComponentProps<"form">) {
     handleSubmit,
     formState: { errors },
   } = useForm<SignUpSchema>({
-    resolver: zodResolver(zodSignUpSchema!),
+    resolver: zodResolver(zodSignUpSchema),
   });
 
   const onSubmit: SubmitHandler<SignUpSchema> = async (data) => {
     await authClient.signUp.email(
       {
         name: data.name,
-        phone: data.phone,
         email: data.email,
         password: data.password,
+        ...(data.phone ? { phone: data.phone } : {}),
         callbackURL: "/",
       },
       {

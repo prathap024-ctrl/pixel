@@ -5,14 +5,15 @@ export const zodLoginSchema = z.object({
   password: z.string(),
 });
 
-export const zodSignUpSchema = zodLoginSchema
-  .extend({
-    name: z.string(),
-    phone: z.string().optional(),
+export const zodSignUpSchema = z
+  .object({
+    email: z.string().email(),
+    password: z.string().min(8, "Password must be at least 8 characters"),
+    name: z.string().min(1, "Name is required"),
+    phone: z.string(),
     confirmPassword: z.string(),
   })
-  .refine((data: any) => data.password === data.confirmPassword, {
+  .refine((data) => data.password === data.confirmPassword, {
     message: "Passwords do not match",
     path: ["confirmPassword"],
   });
-

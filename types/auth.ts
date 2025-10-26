@@ -3,8 +3,10 @@ export interface LoginSchema {
   password: string;
 }
 
-export interface SignUpSchema extends LoginSchema {
+export interface SignUpSchema {
+  email: string;
+  password: string;
   name: string;
-  phone?: string;
+  phone: string;
   confirmPassword: string;
 }
