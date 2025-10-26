@@ -154,7 +154,7 @@ export type WorkerMessage = WorkerDataMessage | WorkerErrorMessage;
 // --- Chat State ---
 
 export interface GlobalChatState {
-  messages: UIMessage[];
+  messages: UIMessage<M, D, T>[];
   input: string;
   isLoading: boolean;
   error?: Error;
@@ -223,14 +223,6 @@ export type DeepPartial<T> = T extends object
   : T;
 
 /* ------------------  MODULE STATE  ------------------ */
-
-export interface GlobalChatState {
-  messages: UIMessage[];
-  input: string;
-  isLoading: boolean;
-  error?: Error;
-}
-
 export interface ChatMessage {
   id: string;
   role: "user" | "assistant" | "system";
