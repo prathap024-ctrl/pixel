@@ -39,7 +39,7 @@ function SignupForm({ className, ...props }: React.ComponentProps<"form">) {
         email: data.email,
         password: data.password,
         ...(data.phone ? { phone: data.phone } : {}),
-        callbackURL: "/",
+        callbackURL: "/login",
       },
       {
         onRequest: () => {
