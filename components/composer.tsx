@@ -183,6 +183,8 @@ const Composer: React.FC<ComposerProps> = ({
   const isSendDisabled =
     (!input.trim() && selectedFiles.length === 0) || isLoading;
 
+  const modelName = model.length > 10 ? model.slice(0, 10) + "..." : model;
+
   return (
     <div {...props}>
       <AnimatePresence>
@@ -284,7 +286,7 @@ const Composer: React.FC<ComposerProps> = ({
                     disabled={isLoading}
                     aria-label="Select model"
                   >
-                    {model}
+                    {modelName}
                   </InputGroupButton>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent
