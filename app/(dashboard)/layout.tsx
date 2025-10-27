@@ -1,7 +1,6 @@
 "use client";
 
 import { AppSidebar } from "@/components/app-sidebar";
-import AuthProvider from "@/components/AuthProvider";
 import SidebarTrigger from "@/components/SidebarTigger";
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
 import { useSidebarStore } from "@/stores/useDashboardStore";
@@ -15,7 +14,6 @@ function DashboardLayout({
   const { isOpen, setOpen } = useSidebarStore();
   return (
     <>
-      <AuthProvider>
         <SidebarProvider
           open={isOpen}
           onOpenChange={setOpen}
@@ -32,7 +30,6 @@ function DashboardLayout({
             <div>{children}</div>
           </SidebarInset>
         </SidebarProvider>
-      </AuthProvider>
     </>
   );
 }
