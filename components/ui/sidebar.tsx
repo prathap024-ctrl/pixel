@@ -94,7 +94,7 @@ function SidebarProvider({
   // Helper to toggle the sidebar.
   const toggleSidebar = React.useCallback(() => {
     if (isMobile) {
-      setOpenMobile?.(!openMobile);
+      setOpenMobile(!openMobile);
     } else {
       // setOpen accepts either a boolean or a function
       setOpen((prevOpen) => !prevOpen);
