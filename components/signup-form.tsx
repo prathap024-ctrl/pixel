@@ -19,6 +19,7 @@ import React, { memo } from "react";
 import { Spinner } from "./ui/spinner";
 import { authClient } from "@/lib/auth-client";
 import { ThemedLogo } from "@/lib/assets";
+import Link from "next/link";
 
 function SignupForm({ className, ...props }: React.ComponentProps<"form">) {
   const [isLoading, setIsLoading] = React.useState(false);
@@ -186,7 +187,7 @@ function SignupForm({ className, ...props }: React.ComponentProps<"form">) {
             Sign up with GitHub
           </Button>
           <FieldDescription className="px-6 text-center">
-            Already have an account? <a href="#">Sign in</a>
+            Already have an account? <Link href="/login">Login</Link>
           </FieldDescription>
         </Field>
       </FieldGroup>

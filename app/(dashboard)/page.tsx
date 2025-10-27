@@ -1,11 +1,14 @@
 import { MainChat } from "@/components/MainChat";
 import { memo } from "react";
+import AuthProvider from "@/components/AuthProvider";
 
 function DashboardPage() {
   return (
     <>
       <div>
-        <MainChat />
+        <AuthProvider>
+          <MainChat />
+        </AuthProvider>
       </div>
     </>
   );
