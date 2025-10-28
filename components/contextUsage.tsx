@@ -155,7 +155,7 @@ export const UsageChat = memo(function UsageChat({
         <DialogHeader>
           <DialogTitle>Token Usage</DialogTitle>
           <DialogDescription asChild>
-            <section className={`p-4 ${getStatusColor()} transition-colors`}>
+            <section className={`${getStatusColor()} transition-colors`}>
               {/* Header */}
               <header className="mb-4 flex items-center justify-between">
                 <p className="text-sm text-muted-foreground">
