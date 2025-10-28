@@ -70,12 +70,17 @@ export type ErrorUIPart = {
 
 // Main UI Message type
 export type UIMessage<
-  METADATA = unknown,
   DATA_PARTS extends Record<string, any> = Record<string, any>
 > = {
   id: string;
   role: "system" | "user" | "assistant";
-  metadata?: METADATA;
+  metadata?: {
+    tokens?: number;
+    cost?: number;
+    timestamp?: number;
+    model?: string;
+    [key: string]: any; // Allow other custom fields
+  };
   status: MessageStatus;
   parts: Array<
     | TextUIPart

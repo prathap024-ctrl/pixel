@@ -30,11 +30,23 @@ const fadeInUp = {
   },
 };
 function ConversationScreen({ messages, isLoading, regenerate }: Props) {
+  /* 1. pick the message we want to show */
   const msg = messages[0];
+
+  /* 2. decide whether we are still streaming this message */
+  const isStreaming =
+    isLoading &&
+    messages.at(-1)?.id === msg.id &&
+    msg.parts.at(-1)?.type === "text";
+
+  /* 3. stable key: id while streaming, id+finished once done */
+  const stableKey = isStreaming ? msg.id : `${msg.id}-finished`;
+
+  /* 4. show skeleton only on the very last empty message */
   const showLoader =
     isLoading &&
     msg.id === messages.at(-1)?.id &&
-    msg.parts.every((part) => !("text" in part) || part.text.length === 0);
+    msg.parts.every((p) => !("text" in p) || p.text.length === 0);
 
   return (
     <div>
@@ -42,7 +54,7 @@ function ConversationScreen({ messages, isLoading, regenerate }: Props) {
         <Conversation>
           <ConversationContent>
             <motion.div
-              key={msg.id}
+              key={stableKey} // ← stable while streaming
               initial="initial"
               animate="animate"
               exit="exit"
@@ -59,7 +71,6 @@ function ConversationScreen({ messages, isLoading, regenerate }: Props) {
                         return (
                           <div key={key} className="relative">
                             <ReasoningResponse
-                              key={key}
                               part={part}
                               messages={msg}
                               partIndex={idx}
@@ -90,7 +101,6 @@ function ConversationScreen({ messages, isLoading, regenerate }: Props) {
               </Message>
             </motion.div>
 
-            {/* loader only on the very last message */}
             {msg.parts.length === 0 && showLoader && (
               <div className="flex flex-col max-w-[300px]">
                 <SidebarMenuSkeleton />
@@ -98,9 +108,6 @@ function ConversationScreen({ messages, isLoading, regenerate }: Props) {
               </div>
             )}
           </ConversationContent>
-
-          {/* scroll-to-bottom button still works because the outer
-              Conversation component measures the real DOM height */}
           <ConversationScrollButton />
         </Conversation>
       </AnimatePresence>

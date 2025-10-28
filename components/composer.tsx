@@ -21,6 +21,7 @@ import { Separator } from "@/components/ui/separator";
 import { Input } from "./ui/input";
 import Image from "next/image";
 import { AnimatePresence, motion } from "framer-motion";
+import { UsageChat } from "./contextUsage";
 
 interface FileData {
   file: File;
@@ -172,7 +173,7 @@ const Composer: React.FC<ComposerProps> = ({
 
   const debouncedSetInput = useDebouncedCallback(
     (value: string) => setInput(value),
-    50 
+    50
   );
 
   const handleKeyDown = useCallback(
@@ -320,7 +321,18 @@ const Composer: React.FC<ComposerProps> = ({
                 </DropdownMenuContent>
               </DropdownMenu>
 
-              <InputGroupText className="ml-auto">52% used</InputGroupText>
+              <InputGroupText className="ml-auto">
+                <UsageChat
+                  maxTokens={100000}
+                  modelId={model}
+                  warningThreshold={75}
+                  criticalThreshold={90}
+                  onTokensExhausted={() => {
+                    // Show upgrade modal, disable chat, etc.
+                    console.log("Tokens exhausted!");
+                  }}
+                />
+              </InputGroupText>
 
               <Separator orientation="vertical" className="h-4!" />
 

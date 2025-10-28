@@ -46,61 +46,39 @@ export function MainChat({ chatId }: MainChatProps) {
   const parentRef = useRef<HTMLDivElement>(null);
 
   // Fix: Better estimate size and proper measurement
+  /* -------------------------------------------------- */
+  /* 1️⃣  stable key for the message that is streaming   */
+  const streamingKeyRef = useRef<string>("");
+  const lastFinishedIdRef = useRef<string>("");
+
+  useEffect(() => {
+    const last = chat.messages.at(-1);
+    if (!last) return;
+
+    // stream just started → remember the id
+    if (chat.isLoading && lastFinishedIdRef.current !== last.id) {
+      streamingKeyRef.current = last.id;
+    }
+    // stream just finished → remember we finished
+    if (!chat.isLoading) {
+      lastFinishedIdRef.current = last.id;
+    }
+  }, [chat.messages, chat.isLoading]);
+  /* -------------------------------------------------- */
+
   const virtual = useVirtualizer({
     count: chat.messages.length,
     getScrollElement: () => parentRef.current,
-    estimateSize: () => 40, // Increased estimate to prevent gaps
+    estimateSize: () => 40,
     overscan: 5,
   });
-  /* ---------- auto-scroll to bottom during streaming ---------- */
-  const lastMessageRef = useRef(chat.messages[chat.messages.length - 1]);
-  const isStreamingRef = useRef(chat.isLoading);
 
+  /* ---------- auto-scroll ---------- */
   useEffect(() => {
-    isStreamingRef.current = chat.isLoading;
-  }, [chat.isLoading]);
-
-  useEffect(() => {
-    const currentLastMessage = chat.messages[chat.messages.length - 1];
-    const lastMessageChanged =
-      lastMessageRef.current?.id !== currentLastMessage?.id;
-
-    // Scroll when:
-    // 1. New message arrives (user sends or AI starts streaming)
-    // 2. During streaming of the last message
-    // 3. When streaming finishes
-    if (lastMessageChanged || chat.isLoading) {
-      lastMessageRef.current = currentLastMessage;
-
-      if (chat.messages.length > 0) {
-        const lastIndex = chat.messages.length - 1;
-
-        // Small delay to ensure DOM is updated for streaming content
-        setTimeout(() => {
-          virtual.scrollToIndex(lastIndex, {
-            align: "end",
-            behavior: isStreamingRef.current ? "smooth" : "auto",
-          });
-        }, 50);
-      }
-    }
-  }, [chat.messages, chat.isLoading, virtual]);
-
-  // Additional scroll trigger for streaming content updates
-  useEffect(() => {
-    if (chat.isLoading && chat.messages.length > 0) {
-      // Scroll every time streaming content updates
-      const scrollInterval = setInterval(() => {
-        const lastIndex = chat.messages.length - 1;
-        virtual.scrollToIndex(lastIndex, {
-          align: "end",
-        });
-      }, 500); // Scroll every 500ms during streaming
-
-      return () => clearInterval(scrollInterval);
-    }
-  }, [chat.isLoading, chat.messages.length, virtual]);
-
+    if (!chat.isLoading) return;
+    const lastIndex = chat.messages.length - 1;
+    virtual.scrollToIndex(lastIndex, { align: "end", behavior: "auto" });
+  }, [chat.messages.length, chat.isLoading, virtual]);
   return (
     <AnimatePresence>
       <div className={`flex flex-col h-[97vh] top-2 w-full`}>
@@ -121,39 +99,50 @@ export function MainChat({ chatId }: MainChatProps) {
                 position: "relative",
               }}
             >
-              {virtual.getVirtualItems().map((virtualItem) => (
-                <div
-                  key={virtualItem.key}
-                  data-index={virtualItem.index}
-                  ref={virtual.measureElement}
-                  style={{
-                    position: "absolute",
-                    top: 0,
-                    left: 0,
-                    width: "100%",
-                    transform: `translateY(${virtualItem.start}px)`,
-                  }}
-                >
+              {virtual.getVirtualItems().map((virtualItem) => {
+                const msg = chat.messages[virtualItem.index];
+
+                /* 2️⃣  use stable key while streaming */
+                const rowKey =
+                  chat.isLoading &&
+                  virtualItem.index === chat.messages.length - 1
+                    ? streamingKeyRef.current // same key while streaming
+                    : msg.id; // normal key otherwise
+
+                return (
                   <div
-                    className={
-                      virtualItem.index === 0
-                        ? "pt-4"
-                        : virtualItem.index === chat.messages.length - 1
-                        ? "pb-42"
-                        : ""
-                    }
+                    key={rowKey}
+                    data-index={virtualItem.index}
+                    ref={virtual.measureElement}
+                    style={{
+                      position: "absolute",
+                      top: 0,
+                      left: 0,
+                      width: "100%",
+                      transform: `translateY(${virtualItem.start}px)`,
+                    }}
                   >
-                    <ConversationScreen
-                      messages={[chat.messages[virtualItem.index]]}
-                      regenerate={chat.regenerate}
-                      isLoading={
-                        chat.isLoading &&
-                        virtualItem.index === chat.messages.length - 1
+                    <div
+                      className={
+                        virtualItem.index === 0
+                          ? "pt-4"
+                          : virtualItem.index === chat.messages.length - 1
+                          ? "pb-42"
+                          : ""
                       }
-                    />
+                    >
+                      <ConversationScreen
+                        messages={[chat.messages[virtualItem.index]]}
+                        regenerate={chat.regenerate}
+                        isLoading={
+                          chat.isLoading &&
+                          virtualItem.index === chat.messages.length - 1
+                        }
+                      />
+                    </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>
