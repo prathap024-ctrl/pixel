@@ -1,6 +1,6 @@
 import type { UIMessage } from "@/types/useChat";
 import { AnimatePresence, motion } from "framer-motion";
-import { memo, useCallback, useState } from "react";
+import { memo } from "react";
 import {
   Conversation,
   ConversationContent,
@@ -9,10 +9,8 @@ import {
 import { Message, MessageContent } from "./ai-elements/message";
 import { TextResponse } from "./TextResponse";
 import { ReasoningResponse } from "./ReasoningResponse";
-import { CopyCheck, CopyIcon, RefreshCcwIcon } from "lucide-react";
-import { Action, Actions } from "./ai-elements/actions";
-import { toast } from "sonner";
 import { SidebarMenuSkeleton } from "./ui/sidebar";
+import { MessageActions } from "./MessageActions";
 
 interface Props {
   messages: UIMessage[];
@@ -32,29 +30,12 @@ const fadeInUp = {
   },
 };
 function ConversationScreen({ messages, isLoading, regenerate }: Props) {
-  const msg = messages[0]; // virtualiser gives us one at a time
-  const [copy, setCopy] = useState(false);
-  // In ConversationScreen component
-  // Simple condition without useEffect
+  const msg = messages[0];
   const showLoader =
     isLoading &&
     msg.id === messages.at(-1)?.id &&
     msg.parts.every((part) => !("text" in part) || part.text.length === 0);
 
-  const handleCopy = useCallback((text: string) => {
-    navigator.clipboard.writeText(text);
-    setCopy(true);
-    toast.success("Copied to clipboard", {
-      duration: 1000,
-      description: "Copied to clipboard",
-      closeButton: true,
-    });
-    setTimeout(() => setCopy(false), 1000);
-  }, []);
-
-  const isStreamingComplete = !msg.parts.some(
-    (part) => "state" in part && part.state === "streaming"
-  );
   return (
     <div>
       <AnimatePresence mode="wait">
@@ -74,63 +55,31 @@ function ConversationScreen({ messages, isLoading, regenerate }: Props) {
                   {msg.parts.map((part, idx) => {
                     const key = `${msg.id}-${idx}`;
                     switch (part.type) {
-                      case "text":
-                        return (
-                          <div key={key} className="relative">
-                            <TextResponse part={part} />
-                            {/* Add action buttons for text parts */}
-                            {msg.role === "assistant" &&
-                              part.text &&
-                              isStreamingComplete && (
-                                <Actions className="pt-2">
-                                  <Action
-                                    onClick={() => handleCopy(part.text)}
-                                    label="Copy"
-                                  >
-                                    {copy ? (
-                                      <CopyCheck className="size-3" />
-                                    ) : (
-                                      <CopyIcon className="size-3" />
-                                    )}
-                                  </Action>
-                                  <Action onClick={regenerate} label="Copy">
-                                    <RefreshCcwIcon className="size-3" />
-                                  </Action>
-                                </Actions>
-                              )}
-                          </div>
-                        );
                       case "reasoning":
                         return (
                           <div key={key} className="relative">
                             <ReasoningResponse
                               key={key}
                               part={part}
-                              isStreaming={
-                                part.state === "streaming" &&
-                                idx === msg.parts.length - 1
-                              }
+                              messages={msg}
+                              partIndex={idx}
                             />
-                            {/* Add action buttons for reasoning parts if they have text */}
-                            {msg.role === "assistant" &&
-                              part.text &&
-                              isStreamingComplete && (
-                                <Actions className="pt-2">
-                                  <Action
-                                    onClick={() => handleCopy(part.text)}
-                                    label="Copy"
-                                  >
-                                    {copy ? (
-                                      <CopyCheck className="size-3" />
-                                    ) : (
-                                      <CopyIcon className="size-3" />
-                                    )}
-                                  </Action>
-                                  <Action onClick={regenerate} label="Copy">
-                                    <RefreshCcwIcon className="size-3" />
-                                  </Action>
-                                </Actions>
-                              )}
+                            <MessageActions
+                              part={part}
+                              messages={messages}
+                              regenerate={regenerate}
+                            />
+                          </div>
+                        );
+                      case "text":
+                        return (
+                          <div key={key} className="relative">
+                            <TextResponse part={part} />
+                            <MessageActions
+                              part={part}
+                              messages={messages}
+                              regenerate={regenerate}
+                            />
                           </div>
                         );
                       default:
@@ -142,7 +91,7 @@ function ConversationScreen({ messages, isLoading, regenerate }: Props) {
             </motion.div>
 
             {/* loader only on the very last message */}
-            {showLoader && (
+            {msg.parts.length === 0 && showLoader && (
               <div className="flex flex-col max-w-[300px]">
                 <SidebarMenuSkeleton />
                 <SidebarMenuSkeleton />

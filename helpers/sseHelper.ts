@@ -1,189 +1,184 @@
 import { ChatMessage } from "@/types/useChat";
-import { getAiModel } from "./aiModels";
 
-export const AVAILABLE_TOOLS = {
-  web_search: {
-    name: "web_search",
-    description: "Search the web for information",
-    parameters: {
-      query: "string",
-    },
-  },
-  calculate: {
-    name: "calculate",
-    description: "Perform mathematical calculations",
-    parameters: {
-      expression: "string",
-    },
-  },
-  get_weather: {
-    name: "get_weather",
-    description: "Get current weather for a location",
-    parameters: {
-      location: "string",
-    },
-  },
-};
+export function validateAndSanitizeMessages(
+  messages: ChatMessage[]
+): { role: string; content: string }[] {
+  return messages
+    .filter((msg) => {
+      const hasValidRole =
+        msg.role && typeof msg.role === "string" && msg.role.trim().length > 0;
+      const hasContent = msg.content !== undefined && msg.content !== null;
 
+      if (!hasValidRole || !hasContent) {
+        console.warn("Invalid message filtered:", {
+          role: msg.role,
+          hasContent,
+        });
+      }
+
+      return hasValidRole && hasContent;
+    })
+    .map((msg) => ({
+      role: msg.role.trim(),
+      content: String(msg.content),
+    }));
+}
+
+// Optimized AI service with proper streaming
 export class AIService {
   private apiKey: string;
-  private isOpenRouter: boolean;
+  private baseUrl = "https://openrouter.ai/api/v1";
 
   constructor() {
-    const openrouter_apiKey = process.env.OPENROUTER_API_KEY;
-    const openai_apiKey = process.env.OPENAI_API_KEY;
-    const gemini_apiKey = process.env.GOOGLE_GENERATIVE_AI_API_KEY;
-    const perplexity_apiKey = process.env.PERPLEXITY_API_KEY;
-    const claude_apiKey = process.env.CLAUDE_API_KEY;
-
     const apiKey =
-      openrouter_apiKey ||
-      openai_apiKey ||
-      gemini_apiKey ||
-      perplexity_apiKey ||
-      claude_apiKey;
+      process.env.OPENROUTER_API_KEY ||
+      process.env.OPENAI_API_KEY ||
+      process.env.GOOGLE_GENERATIVE_AI_API_KEY ||
+      process.env.PERPLEXITY_API_KEY ||
+      process.env.CLAUDE_API_KEY;
 
     if (!apiKey) {
-      throw new Error("API_KEY is not set");
+      throw new Error("No API key configured");
     }
 
     this.apiKey = apiKey;
-    this.isOpenRouter = !!openrouter_apiKey;
   }
 
   async createChatCompletion(
-    messages: ChatMessage[],
+    messages: Array<{ role: string; content: string }>,
     options: {
       model?: string;
       temperature?: number;
       max_tokens?: number;
       stream?: boolean;
     } = {}
-  ) {
-    // Validate input messages first
-    this.validateMessages(messages);
-
-    const defaultModel = this.isOpenRouter ? "gpt-4o-mini" : "gpt-4o-mini";
-
-    const finalOptions = {
-      model: options.model || defaultModel,
-      temperature: options.temperature,
-      max_tokens: options.max_tokens,
-      stream: options.stream,
+  ): Promise<Response> {
+    const payload = {
+      model: options.model || "openai/gpt-4o-mini",
+      messages,
+      temperature: options.temperature ?? 0.7,
+      max_tokens: options.max_tokens ?? 8000,
+      stream: options.stream ?? false,
     };
 
-    try {
-      const response = await getAiModel({
-        apiKey: this.apiKey,
-        messages: messages,
-        options: finalOptions,
-      });
+    const config = {
+      baseUrl: "https://openrouter.ai/api/v1",
+      endpoint: "/chat/completions",
+      headers: {
+        "HTTP-Referer": "https://localhost:3000",
+        "X-Title": "PixelPilot",
+      },
+    };
 
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.error("API Error Response:", errorText);
-        throw new Error(
-          `AI Service error: ${response.status} ${response.statusText} - ${errorText}`
-        );
-      }
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${this.apiKey}`,
+      ...config.headers,
+    };
 
-      return response;
-    } catch (error) {
-      console.error("Error in createChatCompletion:", error);
-      throw error;
-    }
-  }
-
-  // Validate messages before sending
-  private validateMessages(messages: ChatMessage[]): void {
-    if (!messages || !Array.isArray(messages) || messages.length === 0) {
-      throw new Error("Messages array cannot be empty");
-    }
-
-    messages.forEach((msg, index) => {
-      if (!msg.role || typeof msg.role !== "string") {
-        throw new Error(`Message at index ${index} is missing 'role' field`);
-      }
-
-      if (msg.content === undefined || msg.content === null) {
-        throw new Error(`Message at index ${index} is missing 'content' field`);
-      }
-
-      // Ensure content is a string
-      if (typeof msg.content !== "string") {
-        console.warn(
-          `Message at index ${index} has non-string content, converting to string`
-        );
-        msg.content = String(msg.content);
-      }
+    return fetch(`${config.baseUrl}${config.endpoint}`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify(payload),
     });
   }
 
-  async *simulateThinking(prompt: string): AsyncGenerator<string> {
-    const thinkingSteps = [
-      "Analyzing the user's query...",
-      "Breaking down the problem into components...",
-      "Considering relevant context and information...",
-      "Formulating a comprehensive response strategy...",
+  async *streamThinking(prompt: string): AsyncGenerator<string> {
+    const steps = [
+      "Analyzing query",
+      "Processing context",
+      "Formulating response",
     ];
 
-    for (const step of thinkingSteps) {
+    for (const step of steps) {
       yield JSON.stringify({
         type: "thinking",
-        text: step,
+        text: step + "\n",
         state: "streaming",
-        title: "Planning Response",
-      }) + "\n";
-      await new Promise((r) => setTimeout(r, 300));
+        title: "Thinking",
+      });
+      await new Promise((r) => setTimeout(r, 100));
     }
 
     yield JSON.stringify({
       type: "finish",
       finishedTypes: ["thinking"],
-    }) + "\n";
+    });
   }
 
-  // Simulate tool calling
-  async *simulateToolCall(toolName: string, args: any): AsyncGenerator<string> {
+  async *streamReasoning(prompt: string): AsyncGenerator<string> {
+    const steps = [
+      "Analyzing query",
+      "Processing context",
+      "Formulating response",
+    ];
+
+    for (const step in steps) {
+      yield JSON.stringify({
+        type: "reasoning",
+        text: "Analyzing: " + step + "\n",
+        state: "streaming",
+      });
+      await new Promise((r) => setTimeout(r, 150));
+    }
+    yield JSON.stringify({
+      type: "finish",
+      finishedTypes: ["reasoning"],
+    });
+  }
+
+  async *streamToolCall(toolName: string, args: any): AsyncGenerator<string> {
     const toolCallId = `call_${Date.now()}_${Math.random()
       .toString(36)
       .slice(2, 11)}`;
 
-    // Announce tool call
     yield JSON.stringify({
       type: "tool-call",
       toolCallId,
       toolName,
       args,
       state: "streaming",
-    }) + "\n";
+    });
 
-    await new Promise((r) => setTimeout(r, 500));
+    await new Promise((r) => setTimeout(r, 200));
 
-    // Update to executing
     yield JSON.stringify({
       type: "tool-call",
       toolCallId,
       toolName,
       args,
       state: "executing",
-    }) + "\n";
+    });
 
-    await new Promise((r) => setTimeout(r, 1000));
+    await new Promise((r) => setTimeout(r, 300));
 
-    // Simulate tool result
-    let result;
+    let result: any;
     switch (toolName) {
       case "web_search":
         result = {
           results: [
-            { title: "Example Result 1", url: "https://example.com/1" },
-            { title: "Example Result 2", url: "https://example.com/2" },
+            {
+              title: "Result 1",
+              url: "https://example.com/1",
+              snippet: "Info...",
+            },
+            {
+              title: "Result 2",
+              url: "https://example.com/2",
+              snippet: "More info...",
+            },
           ],
         };
         break;
       case "calculate":
-        result = { answer: "42", expression: args.expression };
+        try {
+          result = {
+            answer: eval(args.expression),
+            expression: args.expression,
+          };
+        } catch {
+          result = { error: "Invalid expression" };
+        }
         break;
       case "get_weather":
         result = {
@@ -193,84 +188,79 @@ export class AIService {
         };
         break;
       default:
-        result = { message: "Tool executed successfully" };
+        result = { message: "Tool executed" };
     }
 
-    // Mark as complete
     yield JSON.stringify({
       type: "tool-call",
       toolCallId,
       toolName,
       args,
       state: "complete",
-    }) + "\n";
+    });
 
-    // Send result
     yield JSON.stringify({
       type: "tool-result",
       toolCallId,
       toolName,
       result,
-    }) + "\n";
+    });
   }
 
-  // Simulate workflow steps
-  async *simulateWorkflow(): AsyncGenerator<string> {
+  async *streamWorkflow(): AsyncGenerator<string> {
     const steps = [
-      {
-        stepId: "step_1",
-        title: "Initializing Request",
-        description: "Preparing to process your query",
-        status: "running",
-        progress: 0,
-      },
-      {
-        stepId: "step_2",
-        title: "Analyzing Context",
-        description: "Understanding the conversation context",
-        status: "pending",
-        progress: 0,
-      },
-      {
-        stepId: "step_3",
-        title: "Generating Response",
-        description: "Creating a comprehensive answer",
-        status: "pending",
-        progress: 0,
-      },
+      { id: "1", title: "Initializing" },
+      { id: "2", title: "Processing" },
+      { id: "3", title: "Generating" },
     ];
 
-    for (let i = 0; i < steps.length; i++) {
-      const step = steps[i];
+    for (const step of steps) {
+      const stepId = `step_${step.id}`;
 
-      // Start step
       yield JSON.stringify({
         type: "workflow-step",
-        ...step,
+        stepId,
+        title: step.title,
         status: "running",
-      }) + "\n";
+        progress: 0,
+      });
 
-      // Simulate progress
-      for (let progress = 0; progress <= 100; progress += 20) {
+      for (let progress = 25; progress <= 100; progress += 25) {
         yield JSON.stringify({
           type: "workflow-step",
-          ...step,
+          stepId,
+          title: step.title,
           status: "running",
           progress,
-        }) + "\n";
-        await new Promise((r) => setTimeout(r, 200));
+        });
+        await new Promise((r) => setTimeout(r, 100));
       }
 
-      // Complete step
       yield JSON.stringify({
         type: "workflow-step",
-        ...step,
+        stepId,
+        title: step.title,
         status: "completed",
         progress: 100,
-      }) + "\n";
-
-      await new Promise((r) => setTimeout(r, 300));
+      });
     }
+  }
+
+  detectToolRequests(content: string): Array<{ name: string; args: any }> {
+    const tools: Array<{ name: string; args: any }> = [];
+    const lower = content.toLowerCase();
+
+    if (lower.includes("search")) {
+      tools.push({ name: "web_search", args: { query: content } });
+    }
+    if (lower.match(/calculate|compute|math/i)) {
+      tools.push({ name: "calculate", args: { expression: "2 + 2" } });
+    }
+    if (lower.includes("weather")) {
+      tools.push({ name: "get_weather", args: { location: "San Francisco" } });
+    }
+
+    return tools;
   }
 
   async *handleStreamResponse(response: Response): AsyncGenerator<string> {
@@ -278,34 +268,80 @@ export class AIService {
     if (!reader) throw new Error("No reader available");
 
     const decoder = new TextDecoder();
+    let buffer = "";
 
     try {
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
 
-        const chunk = decoder.decode(value, { stream: true });
-        const lines = chunk.split("\n").filter((line) => line.trim());
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+
+        // Keep incomplete line in buffer
+        buffer = lines.pop() || "";
 
         for (const line of lines) {
-          if (line.startsWith("data: ") && line !== "data: [DONE]") {
-            const data = line.slice(6);
+          const trimmed = line.trim();
+
+          // Skip empty lines and stream end markers
+          if (!trimmed || trimmed === "data: [DONE]") continue;
+
+          // Only process data lines
+          if (trimmed.startsWith("data: ")) {
+            const data = trimmed.slice(6);
 
             try {
               const parsed = JSON.parse(data);
 
+              // Extract text content - send ONLY the chunk, not accumulated
               if (parsed.choices?.[0]?.delta?.content) {
-                const content = parsed.choices[0].delta.content;
+                const chunk = parsed.choices[0].delta.content;
+
+                // IMPORTANT: Send only this chunk, NOT accumulated
                 yield JSON.stringify({
                   type: "text",
-                  text: content,
+                  text: chunk,
                   state: "streaming",
-                }) + "\n";
+                });
               }
-            } catch (e: any) {
-              // Skip invalid JSON
+
+              // Handle usage stats
+              if (parsed.usage) {
+                yield JSON.stringify({
+                  type: "usage",
+                  data: {
+                    totalTokens: parsed.usage.total_tokens || 0,
+                    promptTokens: parsed.usage.prompt_tokens || 0,
+                    completionTokens: parsed.usage.completion_tokens || 0,
+                  },
+                });
+              }
+            } catch (e) {
+              // Silently skip malformed JSON
               continue;
             }
+          }
+        }
+      }
+
+      // Final flush of any remaining buffer
+      if (buffer.trim() && buffer.trim() !== "data: [DONE]") {
+        if (buffer.trim().startsWith("data: ")) {
+          const data = buffer.trim().slice(6);
+          try {
+            const parsed = JSON.parse(data);
+            if (parsed.choices?.[0]?.delta?.content) {
+              const chunk = parsed.choices[0].delta.content;
+
+              yield JSON.stringify({
+                type: "text",
+                text: chunk,
+                state: "streaming",
+              });
+            }
+          } catch {
+            // Ignore
           }
         }
       }

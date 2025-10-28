@@ -1,44 +1,23 @@
-// types/useChat.ts
+// Message status types
+export type MessageStatus =
+  | "submitted"
+  | "streaming"
+  | "ready"
+  | "error"
+  | "idle";
 
-export type UIMessage<
-  METADATA = unknown,
-  DATA_PARTS extends Record<string, any> = Record<string, any>, // Add default constraint
-  TOOLS extends Record<string, any> = Record<string, any>
-> = {
-  id: string;
-  role: "system" | "user" | "assistant";
-  metadata?: METADATA;
-  status: "submitted" | "streaming" | "ready" | "error" | "idle";
-  parts: Array<
-    | TextUIPart
-    | ReasoningUIPart
-    | ThinkingUIPart
-    | ToolCallUIPart
-    | ToolResultUIPart
-    | WorkflowStepUIPart
-    | SourceUrlUIPart
-    | SourceDocumentUIPart
-    | FileUIPart
-    | DataUIPart<DATA_PARTS>
-    | StepStartUIPart
-    | ErrorUIPart
-  >;
-};
-
-// --- Message Parts ---
-
+// UI Message parts - optimized for minimal re-renders
 export type TextUIPart = {
   type: "text";
   text: string;
   state: "streaming" | "done";
-  index?: number;
 };
 
 export type ReasoningUIPart = {
   type: "reasoning";
   text: string;
   state: "streaming" | "done";
-  providerMetadata?: Record<string, any>;
+  metadata?: Record<string, any>;
 };
 
 export type ThinkingUIPart = {
@@ -75,42 +54,12 @@ export type WorkflowStepUIPart = {
   metadata?: Record<string, any>;
 };
 
-export type SourceUrlUIPart = {
-  type: "source-url";
-  sourceId: string;
-  url: string;
-  title?: string;
-  providerMetadata?: Record<string, any>;
-};
-
-export type SourceDocumentUIPart = {
-  type: "source-document";
-  sourceId: string;
-  mediaType: string;
-  title: string;
-  filename?: string;
-  providerMetadata?: Record<string, any>;
-};
-
 export type FileUIPart = {
   type: "file";
   mediaType: string;
   filename?: string;
   url: string;
-};
-
-export type DataUIPart<DATA_TYPES extends Record<string, any>> = {
-  [NAME in keyof DATA_TYPES & string]: {
-    type: `data-${NAME}`;
-    id?: string;
-    data: DATA_TYPES[NAME];
-  };
-}[keyof DATA_TYPES & string];
-
-export type StepStartUIPart = {
-  type: "step-start";
-  stepId?: string;
-  title?: string;
+  size?: number;
 };
 
 export type ErrorUIPart = {
@@ -119,127 +68,109 @@ export type ErrorUIPart = {
   code?: string;
 };
 
-// --- Tool Types ---
-
-export type ToolUIPart<TOOLS extends Record<string, any> = {}> = {
-  [NAME in keyof TOOLS & string]: {
-    type: `tool-${NAME}`;
-    toolCallId: string;
-  } & (
-    | { state: "input-streaming"; input?: DeepPartial<TOOLS[NAME]> }
-    | { state: "input-available"; input: TOOLS[NAME] }
-    | {
-        state: "output-available";
-        input: TOOLS[NAME];
-        output: TOOLS[NAME]["output"];
-      }
-    | { state: "output-error"; input: TOOLS[NAME]; errorText: string }
-  );
-}[keyof TOOLS & string];
-
-// --- Worker Types ---
-
-export interface WorkerErrorMessage {
-  type: "error";
-  error: string;
-}
-
-export interface WorkerDataMessage {
-  type: "data";
-  packets: string[];
-}
-
-export type WorkerMessage = WorkerDataMessage | WorkerErrorMessage;
-
-// --- Chat State ---
-
-export interface GlobalChatState {
-  messages: UIMessage[];
-  input: string;
-  isLoading: boolean;
-  error?: Error;
-}
-
-// --- Hook Options ---
-
-export type UseChatOptions<
-  M = unknown,
-  D extends Record<string, any> = Record<string, any>,
-  T extends Record<string, any> = Record<string, any>
+// Main UI Message type
+export type UIMessage<
+  METADATA = unknown,
+  DATA_PARTS extends Record<string, any> = Record<string, any>
 > = {
-  id?: string;
-  initialMessages?: UIMessage<M, D, T>[];
-  initialInput?: string;
-  model?: string;
-  api?: string;
-  credentials?: RequestCredentials;
-  headers?: Record<string, string> | (() => Record<string, string>);
-  body?: Record<string, any>;
-  onResponse?: (res: Response) => void | Promise<void>;
-  onFinish?: (msg: UIMessage<M, D, T>) => void;
-  onError?: (err: Error) => void;
-  onToolCall?: (toolCall: ToolCallUIPart) => void;
-  onWorkflowStep?: (step: WorkflowStepUIPart) => void;
-  sendExtraMessageFields?: boolean;
-  streamProtocol?: "text" | "data";
-  fetch?: typeof globalThis.fetch;
-  keepLastMessageOnError?: boolean;
-  experimental_throttle?: number;
-  persist?: boolean;
-  storageKey?: string;
-  maxRetries?: number;
-  retryDelay?: number;
+  id: string;
+  role: "system" | "user" | "assistant";
+  metadata?: METADATA;
+  status: MessageStatus;
+  parts: Array<
+    | TextUIPart
+    | ReasoningUIPart
+    | ThinkingUIPart
+    | ToolCallUIPart
+    | ToolResultUIPart
+    | WorkflowStepUIPart
+    | FileUIPart
+    | ErrorUIPart
+  >;
 };
 
-// --- Hook Helpers ---
-
-export type UseChatHelpers<
-  M = unknown,
-  D extends Record<string, any> = Record<string, any>,
-  T extends Record<string, any> = Record<string, any>
-> = {
-  messages: UIMessage<M, D, T>[];
-  error: Error | undefined;
-  append: (
-    msg: UIMessage<M, D, T> | { role: "user"; content: string; data?: any },
-    opts?: any
-  ) => Promise<void>;
-  stop: () => void;
-  reload: () => Promise<void>;
-  isLoading: boolean;
-  input: string;
-  setInput: (v: string) => void;
-  regenerate: () => void;
-  handleSubmit: (e?: any, opts?: any) => void;
-  handleInputChange: (e: any) => void;
-  setMessages: (m: UIMessage<M, D, T>[]) => void;
-  addToolResult: (toolCallId: string, result: any) => void;
-  addToolError: (toolCallId: string, error: string) => void;
-  clear: () => void;
-  removeMessage: (id: string) => void;
-  updateMessage: (
-    id: string,
-    fn: (m: UIMessage<M, D, T>) => UIMessage<M, D, T>
-  ) => void;
-};
-
-// --- Utility Types ---
-
-export type ValueOf<T> = T[keyof T];
-export type DeepPartial<T> = T extends object
-  ? { [P in keyof T]?: DeepPartial<T[P]> }
-  : T;
-
-/* ------------------  MODULE STATE  ------------------ */
+// Chat message for API
 export interface ChatMessage {
   id: string;
   role: "user" | "assistant" | "system";
   content: string;
 }
 
+// Usage statistics
+export interface UsageStats {
+  totalTokens: number;
+  promptTokens: number;
+  completionTokens: number;
+  requests: number;
+}
+
+// Feature flags
+export interface ChatFeatures {
+  reasoning?: boolean;
+  thinking?: boolean;
+  toolCalling?: boolean;
+  workflow?: boolean;
+  fileHandling?: boolean;
+}
+
+// Hook options
+export type UseChatOptions<
+  M = unknown,
+  D extends Record<string, any> = Record<string, any>
+> = {
+  id?: string;
+  initialMessages?: UIMessage<M, D>[];
+  initialInput?: string;
+  model?: string;
+  api?: string;
+  credentials?: RequestCredentials;
+  headers?: Record<string, string> | (() => Record<string, string>);
+  body?: Record<string, any>;
+  features?: Partial<ChatFeatures>;
+  onResponse?: (res: Response) => void | Promise<void>;
+  onFinish?: (msg: UIMessage<M, D>) => void;
+  onError?: (err: Error) => void;
+  onToolCall?: (toolCall: ToolCallUIPart) => void;
+  onWorkflowStep?: (step: WorkflowStepUIPart) => void;
+  keepLastMessageOnError?: boolean;
+  persist?: boolean;
+  storageKey?: string;
+  maxRetries?: number;
+  retryDelay?: number;
+};
+
+// Hook return type
+export type UseChatHelpers<
+  M = unknown,
+  D extends Record<string, any> = Record<string, any>
+> = {
+  messages: UIMessage<M, D>[];
+  error: Error | undefined;
+  isLoading: boolean;
+  input: string;
+  usage: UsageStats;
+  features: ChatFeatures;
+  append: (
+    msg:
+      | UIMessage<M, D>
+      | { role: "user"; content: string; data?: any; files?: File[] }
+  ) => Promise<void>;
+  stop: () => void;
+  reload: () => Promise<void>;
+  setInput: (v: string) => void;
+  regenerate: () => Promise<void>;
+  handleSubmit: (e?: any, opts?: any) => void;
+  handleInputChange: (e: any) => void;
+  setMessages: (m: UIMessage<M, D>[]) => void;
+  clear: () => void;
+  processFile: (file: File) => Promise<any>;
+};
+
+// API request body
 export interface ChatRequestBody {
-  id: string;
+  id?: string;
   messages: ChatMessage[];
   model?: string;
   stream?: boolean;
+  features?: ChatFeatures;
 }

@@ -1,135 +1,201 @@
-// workers/sseWorker.ts
+import type { ChatFeatures } from "@/types/useChat";
 
-/**
- * Production-ready SSE (Server-Sent Events) Worker
- * Handles streaming data parsing with proper buffering and error handling
- */
-
-interface WorkerErrorMessage {
-  type: "error";
-  error: string;
+interface ProcessBatchData {
+  type: "process-batch";
+  batch: string[];
+  assistantId: string;
+  features: ChatFeatures;
 }
 
-interface WorkerDataMessage {
-  type: "data";
-  packets: string[];
+type WorkerTaskData = ProcessBatchData;
+
+// Persistent streaming state per message
+interface StreamingState {
+  accumulatedText: string;
+  lastUpdated: number;
 }
 
-export type WorkerMessage = WorkerDataMessage | WorkerErrorMessage;
+const streamingStates = new Map<string, StreamingState>();
 
-// Buffer to handle incomplete chunks across network boundaries
-let buffer = "";
+const CONFIG = {
+  MAX_TEXT_LENGTH: 1000000,
+  MAX_BUFFER_AGE_MS: 30000,
+  CLEANUP_INTERVAL_MS: 60000,
+} as const;
 
-/**
- * Parse SSE data from buffer
- * Handles both single-line and multi-line data events
- */
-function parseSSEData(data: string): string[] {
-  const packets: string[] = [];
-  const lines = data.split("\n");
-  let currentData: string[] = [];
+let cleanupInterval: ReturnType<typeof setInterval> | null = null;
 
-  for (const raw of lines) {
-    const line = raw.trim();
+function startCleanup() {
+  if (cleanupInterval) return;
 
-    // SSE data line
-    if (line.startsWith("data: ")) {
-      const content = line.slice(6);
+  cleanupInterval = setInterval(() => {
+    const now = Date.now();
+    const toDelete: string[] = [];
 
-      // Skip [DONE] sentinel
-      if (content === "[DONE]") {
-        buffer = ""; // Clear buffer on stream end
-        continue;
+    streamingStates.forEach((state, key) => {
+      if (now - state.lastUpdated > CONFIG.MAX_BUFFER_AGE_MS) {
+        toDelete.push(key);
       }
+    });
 
-      currentData.push(content);
-    }
-    // Empty line indicates end of event (for multi-line events)
-    else if (line === "" && currentData.length > 0) {
-      packets.push(currentData.join("\n"));
-      currentData = [];
-    }
-    // SSE comments (ignore)
-    else if (line.startsWith(":")) {
-      continue;
-    }
-    // Other SSE fields (event:, id:, retry:) - ignore for now
-    else if (line.includes(":")) {
-      continue;
-    }
-  }
-
-  // If we have accumulated data but no empty line yet, it's a single-line event
-  if (currentData.length > 0) {
-    packets.push(currentData.join("\n"));
-  }
-
-  return packets;
+    toDelete.forEach((key) => streamingStates.delete(key));
+  }, CONFIG.CLEANUP_INTERVAL_MS);
 }
 
-/**
- * Main message handler
- */
-self.addEventListener("message", (e: MessageEvent<string>) => {
+function stopCleanup() {
+  if (cleanupInterval) {
+    clearInterval(cleanupInterval);
+    cleanupInterval = null;
+  }
+}
+
+function getStreamingState(assistantId: string): StreamingState {
+  if (!streamingStates.has(assistantId)) {
+    streamingStates.set(assistantId, {
+      accumulatedText: "",
+      lastUpdated: Date.now(),
+    });
+  }
+  const state = streamingStates.get(assistantId)!;
+  state.lastUpdated = Date.now();
+  return state;
+}
+
+function safeJsonParse(str: string): any {
   try {
-    // Append incoming data to buffer
-    buffer += e.data;
+    if (!str || typeof str !== "string") return null;
+    return JSON.parse(str);
+  } catch {
+    return null;
+  }
+}
 
-    // Split by newlines to process complete lines
-    const lines = buffer.split("\n");
+function sanitizeText(text: string): string {
+  if (typeof text !== "string") return "";
+  return text.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, "");
+}
 
-    // Keep last line in buffer if chunk doesn't end with newline
-    // (might be incomplete)
-    if (!e.data.endsWith("\n")) {
-      buffer = lines.pop() || "";
-    } else {
-      buffer = "";
+function validateText(
+  text: string,
+  maxLength: number = CONFIG.MAX_TEXT_LENGTH
+): string {
+  const sanitized = sanitizeText(text);
+
+  if (sanitized.length > maxLength) {
+    return sanitized.slice(0, maxLength) + "... [truncated]";
+  }
+
+  return sanitized;
+}
+
+// Process a single chunk - ONLY handle streaming text accumulation
+function processChunk(
+  data: string,
+  assistantId: string,
+  features: ChatFeatures,
+  updates: any[]
+) {
+  const parsed = safeJsonParse(data);
+  if (!parsed || typeof parsed !== "object") return;
+
+  const state = getStreamingState(assistantId);
+
+  // Handle ONLY text streaming - accumulate but send ONLY new chunk
+  if (parsed.type === "text" && parsed.text) {
+    const newText = validateText(parsed.text);
+
+    // Accumulate internally
+    state.accumulatedText = validateText(state.accumulatedText + newText);
+
+    // Send ONLY new chunk
+    updates.push({
+      type: "text",
+      data: {
+        type: "text",
+        text: newText, // Send ONLY new chunk
+        state: "streaming",
+      },
+    });
+    return;
+  }
+
+  // Handle finish - clean up
+  if (parsed.type === "finish") {
+    streamingStates.delete(assistantId);
+
+    // Send finish signal with accumulated text
+    updates.push({
+      type: "finish",
+      data: {
+        type: "finish",
+        text: state.accumulatedText,
+      },
+    });
+    return;
+  }
+
+  // For non-streaming types, pass through unchanged
+  updates.push({
+    type: parsed.type,
+    data: parsed,
+  });
+}
+
+// Process a batch of chunks - streaming only
+function processBatch(
+  batch: string[],
+  assistantId: string,
+  features: ChatFeatures
+): { updates: any[] } {
+  const updates: any[] = [];
+
+  if (!Array.isArray(batch) || batch.length === 0) {
+    return { updates };
+  }
+
+  if (!assistantId || typeof assistantId !== "string") {
+    throw new Error("Invalid assistantId");
+  }
+
+  // Process all chunks in batch
+  for (const data of batch) {
+    if (typeof data === "string" && data.length > 0) {
+      processChunk(data, assistantId, features, updates);
+    }
+  }
+
+  return { updates };
+}
+
+// Main message handler
+self.addEventListener("message", async (e: MessageEvent<WorkerTaskData>) => {
+  try {
+    const data = e.data;
+
+    if (!data || typeof data !== "object" || !data.type) {
+      throw new Error("Invalid message data");
     }
 
-    // Rejoin lines for parsing
-    const completeData = lines.join("\n");
-
-    if (completeData.trim()) {
-      const packets = parseSSEData(completeData + "\n");
-
-      if (packets.length > 0) {
-        const message: WorkerDataMessage = {
-          type: "data",
-          packets,
-        };
-
-        self.postMessage(message);
-      }
+    if (data.type === "process-batch") {
+      const result = processBatch(data.batch, data.assistantId, data.features);
+      self.postMessage(result);
+    } else {
+      throw new Error(`Unknown task type: ${data.type}`);
     }
   } catch (error) {
-    const errorMessage: WorkerErrorMessage = {
-      type: "error",
-      error: error instanceof Error ? error.message : String(error),
-    };
-
-    self.postMessage(errorMessage);
-
-    // Reset buffer on error to prevent cascading failures
-    buffer = "";
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    console.error("[Worker] Error:", errorMessage);
+    self.postMessage({
+      error: sanitizeText(errorMessage),
+    });
   }
 });
 
-/**
- * Handle worker errors
- */
-self.addEventListener("error", (e: ErrorEvent) => {
-  const errorMessage: WorkerErrorMessage = {
-    type: "error",
-    error: e.message || "Unknown worker error",
-  };
+startCleanup();
 
-  self.postMessage(errorMessage);
-  buffer = "";
-});
-
-/**
- * Cleanup on worker termination
- */
 self.addEventListener("beforeunload", () => {
-  buffer = "";
+  stopCleanup();
+  streamingStates.clear();
 });
+
+export { processBatch, sanitizeText, validateText };

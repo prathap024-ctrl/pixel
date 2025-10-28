@@ -1,119 +1,27 @@
-// hooks/useChat.ts
 import { useEffect, useRef, useState, useCallback, useMemo } from "react";
 import type {
   UIMessage,
-  TextUIPart,
-  ReasoningUIPart,
-  ThinkingUIPart,
-  ToolCallUIPart,
-  ToolResultUIPart,
-  WorkflowStepUIPart,
-  GlobalChatState,
   UseChatOptions,
   UseChatHelpers,
-  WorkerMessage,
+  ChatFeatures,
+  UsageStats,
 } from "@/types/useChat";
-import { v4 as uuidv4 } from "uuid";
-
-const globalStates = new Map<string, GlobalChatState>();
-const listenersByChat = new Map<string, Set<() => void>>();
-
-function getState(id: string): GlobalChatState {
-  if (!globalStates.has(id)) {
-    globalStates.set(id, {
-      messages: [],
-      input: "",
-      isLoading: false,
-      error: undefined,
-    });
-  }
-  return globalStates.get(id)!;
-}
-
-function getListeners(id: string): Set<() => void> {
-  if (!listenersByChat.has(id)) {
-    listenersByChat.set(id, new Set());
-  }
-  return listenersByChat.get(id)!;
-}
-
-function notify(id: string) {
-  const listeners = getListeners(id);
-  listeners.forEach((l) => l());
-}
-
-/* ------------------  WORKER MANAGEMENT  ------------------ */
-
-let workerInstance: Worker | null = null;
-let workerInitialized = false;
-let workerError: Error | null = null;
-
-function initWorker(): Worker | null {
-  if (typeof window === "undefined") return null;
-  if (workerInitialized) return workerInstance;
-
-  try {
-    workerInstance = new Worker(
-      new URL("../workers/sseWorker.ts", import.meta.url),
-      { type: "module" }
-    );
-
-    workerInstance.addEventListener("error", (e) => {
-      console.error("[useChat] Worker error:", e);
-      workerError = new Error(`Worker error: ${e.message}`);
-    });
-
-    workerInitialized = true;
-    return workerInstance;
-  } catch (err) {
-    console.error("[useChat] Failed to initialize worker:", err);
-    workerError = err instanceof Error ? err : new Error(String(err));
-    return null;
-  }
-}
-
-/* ------------------  UTILITIES  ------------------ */
-
-export function generateId(): string {
-  return `msg_${Date.now()}_${uuidv4()}`;
-}
-
-export function createMessage(
-  role: "user" | "assistant" | "system",
-  content?: string,
-  data?: any
-): UIMessage {
-  const parts: UIMessage["parts"] = [];
-  if (content) {
-    parts.push({
-      type: "text",
-      text: content,
-      state: "done",
-    } as TextUIPart);
-  }
-  return {
-    id: generateId(),
-    role,
-    parts,
-    ...(data && { metadata: data }),
-  };
-}
-
-function safeJsonParse(str: string): any {
-  try {
-    return JSON.parse(str);
-  } catch {
-    return null;
-  }
-}
-
-/* ------------------  HOOK  ------------------ */
+import {
+  CONFIG,
+  createDebouncedNotify,
+  createMessage,
+  getState,
+  listenersByChat,
+  notify,
+  sanitizeInput,
+  validateFile,
+} from "@/helpers/useChatHelper";
+import { getWorkerPool, workerPool } from "@/workers/workerManagement";
 
 export function useChat<
   M = unknown,
-  D extends Record<string, any> = Record<string, any>,
-  T extends Record<string, any> = Record<string, any>
->(opts: UseChatOptions<M, D, T> = {}): UseChatHelpers<M, D, T> {
+  D extends Record<string, any> = Record<string, any>
+>(opts: UseChatOptions<M, D> = {}): UseChatHelpers<M, D> {
   const {
     id = "chat",
     initialMessages = [],
@@ -123,15 +31,14 @@ export function useChat<
     credentials = "same-origin",
     headers = {},
     body = {},
+    features = {},
     onResponse,
     onFinish,
     onError,
     onToolCall,
     onWorkflowStep,
-    sendExtraMessageFields = false,
-    experimental_throttle = 0,
     persist = false,
-    storageKey = `chat-store-${id}`,
+    storageKey = `chat-${id}`,
     keepLastMessageOnError = true,
     maxRetries = 0,
     retryDelay = 1000,
@@ -139,102 +46,110 @@ export function useChat<
 
   const state = getState(id);
   const abortRef = useRef<AbortController | null>(null);
-  const workerRef = useRef<Worker | null>(null);
+  const debouncedNotifyRef = useRef<ReturnType<
+    typeof createDebouncedNotify
+  > | null>(null);
+  const chunkBatchRef = useRef<string[]>([]);
+  const batchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const isMountedRef = useRef(true);
+  const isStreamingRef = useRef<Set<string>>(new Set());
+  const textAccumRef = useRef<Record<string, string>>({});
 
-  // Track accumulated text per message per type for streaming
-  const streamBufferRef = useRef<
-    Map<
-      string,
-      {
-        text?: string;
-        reasoning?: string;
-        thinking?: string;
-      }
-    >
-  >(new Map());
-
-  /* ----------  INITIALIZATION  ---------- */
+  const enabledFeatures: ChatFeatures = useMemo(
+    () => ({
+      reasoning: features.reasoning ?? false,
+      thinking: features.thinking ?? false,
+      toolCalling: features.toolCalling ?? false,
+      workflow: features.workflow ?? false,
+      fileHandling: features.fileHandling ?? false,
+    }),
+    [features]
+  );
 
   useEffect(() => {
+    isMountedRef.current = true;
+    debouncedNotifyRef.current = createDebouncedNotify(
+      id,
+      CONFIG.UI_UPDATE_DEBOUNCE_MS
+    );
+
     if (initialMessages.length > 0 && state.messages.length === 0) {
-      state.messages = initialMessages;
+      state.messages = initialMessages.slice(0, CONFIG.MAX_MESSAGE_HISTORY);
       notify(id);
     }
     if (initialInput && !state.input) {
-      state.input = initialInput;
+      state.input = sanitizeInput(initialInput);
       notify(id);
     }
-  }, []);
 
-  useEffect(() => {
-    workerRef.current = initWorker();
     return () => {
-      if (abortRef.current) {
-        abortRef.current.abort();
-        abortRef.current = null;
-      }
+      isMountedRef.current = false;
+      debouncedNotifyRef.current?.cleanup();
+      debouncedNotifyRef.current = null;
     };
   }, []);
 
-  /* ----------  PERSISTENCE  ---------- */
   useEffect(() => {
-    if (persist && typeof window !== "undefined") {
-      try {
-        const raw = localStorage.getItem(storageKey);
-        if (raw) {
-          const { messages, input } = JSON.parse(raw);
-          state.messages = messages || [];
-          state.input = input || "";
+    if (!persist || typeof window === "undefined") return;
+
+    try {
+      const raw = localStorage.getItem(storageKey);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (parsed && typeof parsed === "object") {
+          state.messages = (parsed.messages || []).slice(
+            0,
+            CONFIG.MAX_MESSAGE_HISTORY
+          );
+          state.input = sanitizeInput(parsed.input || "");
           notify(id);
         }
-      } catch (err) {
-        console.error("[useChat] Failed to load from localStorage:", err);
       }
-
-      const save = () => {
-        try {
-          localStorage.setItem(
-            storageKey,
-            JSON.stringify({
-              messages: state.messages,
-              input: state.input,
-            })
-          );
-        } catch (err) {
-          console.error("[useChat] Failed to save to localStorage:", err);
-        }
-      };
-
-      const listeners = getListeners(id);
-      listeners.add(save);
-
-      // ✅ Cleanup function must return void
-      return () => {
-        listeners.delete(save); // do not return anything
-      };
+    } catch (err) {
+      console.error("Failed to load from localStorage:", err);
     }
 
-    // no cleanup needed if persist is false
-  }, [persist, storageKey, id]);
+    const save = () => {
+      try {
+        const data = {
+          messages: state.messages.slice(-CONFIG.MAX_MESSAGE_HISTORY),
+          input: state.input,
+        };
+        localStorage.setItem(storageKey, JSON.stringify(data));
+      } catch (err) {
+        console.error("Failed to save to localStorage:", err);
+      }
+    };
 
-  /* ----------  LOCAL STATE SYNC  ---------- */
+    const listeners = listenersByChat.get(id) || new Set();
+    listeners.add(save);
+    listenersByChat.set(id, listeners);
+
+    return () => {
+      listeners.delete(save);
+    };
+  }, [persist, storageKey, id]);
 
   const [, forceRender] = useState({});
 
   useEffect(() => {
-    const cb = () => forceRender({});
-    const listeners = getListeners(id);
+    const cb = () => {
+      if (isMountedRef.current) {
+        forceRender({});
+      }
+    };
+    const listeners = listenersByChat.get(id) || new Set();
     listeners.add(cb);
+    listenersByChat.set(id, listeners);
+
     return () => {
-      listeners.delete(cb); // do not return anything
+      listeners.delete(cb);
     };
   }, [id]);
 
-  /* ----------  STATE SETTERS  ---------- */
-
   const setInput = useCallback(
     (v: string) => {
-      state.input = v;
+      state.input = sanitizeInput(v);
       notify(id);
     },
     [id]
@@ -242,7 +157,7 @@ export function useChat<
 
   const setMessages = useCallback(
     (m: UIMessage[]) => {
-      state.messages = m;
+      state.messages = m.slice(0, CONFIG.MAX_MESSAGE_HISTORY);
       notify(id);
     },
     [id]
@@ -264,359 +179,191 @@ export function useChat<
     [id]
   );
 
-  const addMessage = useCallback(
-    (m: UIMessage) => {
-      state.messages = [...state.messages, m];
-      notify(id);
-    },
-    [id]
-  );
-
   const updateMessage = useCallback(
     (messageId: string, fn: (m: UIMessage) => UIMessage) => {
-      state.messages = state.messages.map((m) =>
+      state.messages = state.messages.map((m: UIMessage) =>
         m.id === messageId ? fn(m) : m
       );
+
+      if (debouncedNotifyRef.current && state.isLoading) {
+        debouncedNotifyRef.current.notify();
+      } else {
+        notify(id);
+      }
+    },
+    [id]
+  );
+
+  const updateUsage = useCallback(
+    (usage: Partial<UsageStats>) => {
+      state.usage = {
+        totalTokens: (state.usage.totalTokens || 0) + (usage.totalTokens || 0),
+        promptTokens:
+          (state.usage.promptTokens || 0) + (usage.promptTokens || 0),
+        completionTokens:
+          (state.usage.completionTokens || 0) + (usage.completionTokens || 0),
+        requests: (state.usage.requests || 0) + 1,
+      };
       notify(id);
     },
     [id]
   );
 
-  const removeMessage = useCallback(
-    (messageId: string) => {
-      state.messages = state.messages.filter((m) => m.id !== messageId);
-      notify(id);
+  const processFile = useCallback(
+    async (file: File) => {
+      if (!enabledFeatures.fileHandling) {
+        throw new Error("File handling is not enabled");
+      }
+
+      validateFile(file);
+
+      const arrayBuffer = await file.arrayBuffer();
+      const bytes = new Uint8Array(arrayBuffer);
+      const chunkSize = 8192;
+      const chunks: string[] = [];
+
+      for (let i = 0; i < bytes.length; i += chunkSize) {
+        const chunk = bytes.subarray(i, Math.min(i + chunkSize, bytes.length));
+        let binary = "";
+        for (let j = 0; j < chunk.length; j++) {
+          binary += String.fromCharCode(chunk[j]);
+        }
+        chunks.push(binary);
+      }
+
+      const base64 = btoa(chunks.join(""));
+
+      return {
+        type: file.type,
+        name: file.name,
+        size: file.size,
+        url: `data:${file.type};base64,${base64}`,
+        processed: true,
+      };
     },
-    [id]
+    [enabledFeatures.fileHandling]
   );
 
-  const clear = useCallback(() => {
-    state.messages = [];
-    state.input = "";
-    state.isLoading = false;
-    state.error = undefined;
-    streamBufferRef.current.clear();
-    notify(id);
-  }, [id]);
+  const processBatchedChunks = useCallback(
+    async (assistantId: string) => {
+      if (chunkBatchRef.current.length === 0) return;
 
-  /* ----------  TOOL HANDLERS  ---------- */
+      const batch = chunkBatchRef.current.splice(0, 10);
 
-  const addToolResult = useCallback(
-    (toolCallId: string, result: any) => {
-      const msgWithTool = state.messages.find((m) =>
-        m.parts.some(
-          (p: any) => p.type === "tool-call" && p.toolCallId === toolCallId
-        )
-      );
-
-      if (msgWithTool) {
-        updateMessage(msgWithTool.id, (msg) => ({
-          ...msg,
-          parts: [
-            ...msg.parts,
-            {
-              type: "tool-result",
-              toolCallId,
-              toolName:
-                (msg.parts.find((p: any) => p.toolCallId === toolCallId) as any)
-                  ?.toolName || "unknown",
-              result,
-              state: "done",
-            } as ToolResultUIPart,
-          ],
-        }));
-      }
-    },
-    [updateMessage]
-  );
-
-  const addToolError = useCallback(
-    (toolCallId: string, error: string) => {
-      const msgWithTool = state.messages.find((m) =>
-        m.parts.some(
-          (p: any) => p.type === "tool-call" && p.toolCallId === toolCallId
-        )
-      );
-
-      if (msgWithTool) {
-        updateMessage(msgWithTool.id, (msg) => ({
-          ...msg,
-          parts: [
-            ...msg.parts,
-            {
-              type: "tool-result",
-              toolCallId,
-              toolName:
-                (msg.parts.find((p: any) => p.toolCallId === toolCallId) as any)
-                  ?.toolName || "unknown",
-              result: null,
-              error,
-              state: "done",
-            } as ToolResultUIPart,
-          ],
-        }));
-      }
-    },
-    [updateMessage]
-  );
-
-  const stop = useCallback(() => {
-    if (abortRef.current) {
-      abortRef.current.abort();
-      abortRef.current = null;
-    }
-    setIsLoading(false);
-  }, [setIsLoading]);
-
-  /* ----------  STREAMING: PROCESS CHUNKS  ---------- */
-
-  const processChunk = useCallback(
-    (data: string, assistantId: string) => {
-      const parsed = safeJsonParse(data);
-      if (!parsed) return;
-
-      // Handle text streaming
-      if (parsed.type === "text") {
-        const buffer = streamBufferRef.current.get(assistantId) || {};
-        buffer.text = (buffer.text || "") + (parsed.text || "");
-        streamBufferRef.current.set(assistantId, buffer);
-
-        updateMessage(assistantId, (msg) => {
-          const idx = msg.parts.findIndex(
-            (p) => p.type === "text" && (p as any).state === "streaming"
-          );
-
-          const part: TextUIPart = {
-            type: "text",
-            text: buffer.text!,
-            state: "streaming",
-          };
-
-          return {
-            ...msg,
-            parts:
-              idx >= 0
-                ? msg.parts.map((p, i) => (i === idx ? part : p))
-                : [...msg.parts, part],
-          };
-        });
-      }
-
-      // Handle reasoning streaming
-      if (parsed.type === "reasoning") {
-        const buffer = streamBufferRef.current.get(assistantId) || {};
-        buffer.reasoning = (buffer.reasoning || "") + (parsed.text || "");
-        streamBufferRef.current.set(assistantId, buffer);
-
-        updateMessage(assistantId, (msg) => {
-          const idx = msg.parts.findIndex(
-            (p) => p.type === "reasoning" && (p as any).state === "streaming"
-          );
-
-          const part: ReasoningUIPart = {
-            type: "reasoning",
-            text: buffer.reasoning!,
-            state: "streaming",
-          };
-
-          return {
-            ...msg,
-            parts:
-              idx >= 0
-                ? msg.parts.map((p, i) => (i === idx ? part : p))
-                : [...msg.parts, part],
-          };
-        });
-      }
-
-      // Handle thinking/chain-of-thought streaming
-      if (parsed.type === "thinking") {
-        const buffer = streamBufferRef.current.get(assistantId) || {};
-        buffer.thinking = (buffer.thinking || "") + (parsed.text || "");
-        streamBufferRef.current.set(assistantId, buffer);
-
-        updateMessage(assistantId, (msg) => {
-          const idx = msg.parts.findIndex(
-            (p) => p.type === "thinking" && (p as any).state === "streaming"
-          );
-
-          const part: ThinkingUIPart = {
-            type: "thinking",
-            text: buffer.thinking!,
-            state: "streaming",
-            title: parsed.title,
-          };
-
-          return {
-            ...msg,
-            parts:
-              idx >= 0
-                ? msg.parts.map((p, i) => (i === idx ? part : p))
-                : [...msg.parts, part],
-          };
-        });
-      }
-
-      // Handle tool calls
-      if (parsed.type === "tool-call") {
-        updateMessage(assistantId, (msg) => {
-          const existingIdx = msg.parts.findIndex(
-            (p: any) =>
-              p.type === "tool-call" && p.toolCallId === parsed.toolCallId
-          );
-
-          const toolPart: ToolCallUIPart = {
-            type: "tool-call",
-            toolCallId: parsed.toolCallId,
-            toolName: parsed.toolName,
-            args: parsed.args,
-            state: parsed.state || "streaming",
-          };
-
-          // Trigger callback
-          onToolCall?.(toolPart);
-
-          return {
-            ...msg,
-            parts:
-              existingIdx >= 0
-                ? msg.parts.map((p, i) => (i === existingIdx ? toolPart : p))
-                : [...msg.parts, toolPart],
-          };
-        });
-      }
-
-      // Handle tool results
-      if (parsed.type === "tool-result") {
-        updateMessage(assistantId, (msg) => ({
-          ...msg,
-          parts: [
-            ...msg.parts,
-            {
-              type: "tool-result",
-              toolCallId: parsed.toolCallId,
-              toolName: parsed.toolName,
-              result: parsed.result,
-              error: parsed.error,
-              state: "done",
-            } as ToolResultUIPart,
-          ],
-        }));
-      }
-
-      // Handle workflow steps
-      if (parsed.type === "workflow-step") {
-        updateMessage(assistantId, (msg) => {
-          const existingIdx = msg.parts.findIndex(
-            (p: any) => p.type === "workflow-step" && p.stepId === parsed.stepId
-          );
-
-          const stepPart: WorkflowStepUIPart = {
-            type: "workflow-step",
-            stepId: parsed.stepId,
-            title: parsed.title,
-            description: parsed.description,
-            status: parsed.status,
-            progress: parsed.progress,
-            metadata: parsed.metadata,
-          };
-
-          // Trigger callback
-          onWorkflowStep?.(stepPart);
-
-          return {
-            ...msg,
-            parts:
-              existingIdx >= 0
-                ? msg.parts.map((p, i) => (i === existingIdx ? stepPart : p))
-                : [...msg.parts, stepPart],
-          };
-        });
-      }
-
-      // Handle finish
-      if (parsed.type === "finish") {
-        const finished = new Set(parsed.finishedTypes ?? []);
-        updateMessage(assistantId, (msg) => ({
-          ...msg,
-          parts: msg.parts.map((p: any) => {
-            if (
-              (p.type === "text" ||
-                p.type === "reasoning" ||
-                p.type === "thinking") &&
-              p.state === "streaming" &&
-              finished.has(p.type)
-            ) {
-              return { ...p, state: "done" };
-            }
-            if (
-              p.type === "tool-call" &&
-              p.state === "streaming" &&
-              finished.has("tool-call")
-            ) {
-              return { ...p, state: "complete" };
-            }
-            return p;
-          }),
-        }));
-
-        streamBufferRef.current.delete(assistantId);
-      }
-
-      // Handle errors
-      if (parsed.type === "error") {
-        setError(new Error(parsed.error || "Stream error"));
-        streamBufferRef.current.delete(assistantId);
-      }
-    },
-    [updateMessage, setError, onToolCall, onWorkflowStep]
-  );
-
-  /* ----------  STREAMING: FETCH WITH RETRY  ---------- */
-
-  const fetchWithRetry = useCallback(
-    async (
-      url: string,
-      options: RequestInit,
-      retries = 0
-    ): Promise<Response> => {
       try {
-        const res = await fetch(url, options);
+        const pool = getWorkerPool();
+        const result: {
+          updates?: Array<{ type: string; data: any }>;
+        } = await pool.execute({
+          type: "process-batch",
+          batch,
+          assistantId,
+          features: enabledFeatures,
+        });
 
-        if (!res.ok && res.status >= 400 && res.status < 500) {
-          throw new Error(`HTTP ${res.status}: ${res.statusText}`);
+        if (!isMountedRef.current) return;
+
+        if (result.updates && result.updates.length > 0) {
+          updateMessage(assistantId, (msg) => {
+            const newMsg = { ...msg };
+
+            result.updates?.forEach((update: any) => {
+              const updateType = update.type;
+
+              if (updateType === "text") {
+                const idx = newMsg.parts.findIndex(
+                  (p: any) => p.type === "text"
+                );
+
+                if (!textAccumRef.current[assistantId]) {
+                  textAccumRef.current[assistantId] = "";
+                }
+
+                const fullText =
+                  textAccumRef.current[assistantId] + update.data.text;
+                textAccumRef.current[assistantId] = fullText;
+
+                if (idx >= 0) {
+                  newMsg.parts[idx] = {
+                    ...(newMsg.parts[idx] as any),
+                    text: fullText,
+                    state: "streaming",
+                  };
+                } else {
+                  newMsg.parts.push({
+                    type: "text",
+                    text: fullText,
+                    state: "streaming",
+                  });
+                }
+                return;
+              }
+
+              if (updateType === "finish") {
+                newMsg.parts = newMsg.parts.map((p: any) =>
+                  p.type === "text" ? { ...p, state: "done" } : p
+                );
+                isStreamingRef.current.delete(assistantId);
+                delete textAccumRef.current[assistantId];
+                return;
+              }
+
+              const idx = newMsg.parts.findIndex(
+                (p: any) => p.type === updateType
+              );
+              if (idx >= 0) {
+                newMsg.parts[idx] = { ...update.data };
+              } else {
+                newMsg.parts.push(update.data);
+              }
+            });
+
+            return newMsg;
+          });
         }
-
-        if (!res.ok && retries < maxRetries) {
-          await new Promise((resolve) => setTimeout(resolve, retryDelay));
-          return fetchWithRetry(url, options, retries + 1);
-        }
-
-        return res;
       } catch (err) {
-        if (
-          retries < maxRetries &&
-          err instanceof Error &&
-          err.name !== "AbortError"
-        ) {
-          await new Promise((resolve) => setTimeout(resolve, retryDelay));
-          return fetchWithRetry(url, options, retries + 1);
-        }
-        throw err;
+        console.error("Batch processing error:", err);
+      }
+
+      if (chunkBatchRef.current.length > 0) {
+        await processBatchedChunks(assistantId);
       }
     },
-    [maxRetries, retryDelay]
+    [updateMessage, enabledFeatures]
   );
 
-  /* ----------  MAIN APPEND FUNCTION  ---------- */
+  const handleChunk = useCallback(
+    (data: string, assistantId: string) => {
+      chunkBatchRef.current.push(data);
+
+      if (batchTimeoutRef.current) {
+        clearTimeout(batchTimeoutRef.current);
+      }
+
+      if (chunkBatchRef.current.length >= 10) {
+        processBatchedChunks(assistantId);
+      } else {
+        batchTimeoutRef.current = setTimeout(() => {
+          processBatchedChunks(assistantId);
+        }, CONFIG.UI_UPDATE_DEBOUNCE_MS);
+      }
+    },
+    [processBatchedChunks]
+  );
 
   const append = useCallback(
     async (
-      msg: UIMessage | { role: "user"; content: string; data?: any },
-      opts: any = {}
+      msg:
+        | UIMessage
+        | { role: "user"; content: string; data?: any; files?: File[] },
+      retryCount = 0
     ) => {
-      if (state.isLoading) {
-        console.warn("[useChat] Request already in progress");
+      if (state.isLoading) return;
+
+      if (!state.rateLimiter.canMakeRequest()) {
+        const error = new Error("Rate limit exceeded. Please try again later.");
+        setError(error);
+        onError?.(error);
         return;
       }
 
@@ -624,47 +371,69 @@ export function useChat<
       setError(undefined);
 
       const userMsg =
-        "content" in msg ? createMessage("user", msg.content, msg.data) : msg;
-      addMessage(userMsg);
+        "content" in msg
+          ? createMessage("user", sanitizeInput(msg.content), msg.data)
+          : msg;
+
+      if (
+        "files" in msg &&
+        msg.files &&
+        msg.files.length > 0 &&
+        enabledFeatures.fileHandling
+      ) {
+        try {
+          const processedFiles = await Promise.all(
+            msg.files.map((f) => processFile(f))
+          );
+          userMsg.parts.push(
+            ...processedFiles.map((pf: any) => ({
+              type: "file" as const,
+              mediaType: pf.type,
+              filename: pf.name,
+              url: pf.url,
+            }))
+          );
+        } catch (err) {
+          console.error("File processing error:", err);
+          const error =
+            err instanceof Error ? err : new Error("File processing failed");
+          setError(error);
+          onError?.(error);
+          setIsLoading(false);
+          return;
+        }
+      }
+
+      state.messages.push(userMsg);
+      notify(id);
 
       const assistantMsg = createMessage("assistant");
-      addMessage(assistantMsg);
-
-      // Initialize buffer for this message
-      streamBufferRef.current.set(assistantMsg.id, {});
+      assistantMsg.status = "streaming";
+      state.messages.push(assistantMsg);
+      notify(id);
 
       abortRef.current = new AbortController();
 
       try {
-        const allMsgs = [...state.messages, userMsg].filter(
-          (m) => m.id !== assistantMsg.id
-        );
-
         const reqBody = {
-          model: model,
-          messages: sendExtraMessageFields
-            ? allMsgs
-            : allMsgs.map((m) => ({
-                id: m.id,
-                role: m.role,
-                content: m.parts
-                  .filter((p) => p.type === "text")
-                  .map((p: any) => p.text)
-                  .join(""),
-              })),
+          model,
+          messages: state.messages.slice(0, -1).map((m: UIMessage) => ({
+            id: m.id,
+            role: m.role,
+            content: m.parts
+              .filter((p) => p.type === "text")
+              .map((p: any) => p.text)
+              .join(""),
+          })),
+          features: enabledFeatures,
           ...body,
-          ...opts.body,
         };
 
         const headersObj = typeof headers === "function" ? headers() : headers;
 
-        const res = await fetchWithRetry(api, {
+        const res = await fetch(api, {
           method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            ...headersObj,
-            ...opts.headers,
-          },
+          headers: { "Content-Type": "application/json", ...headersObj },
           body: JSON.stringify(reqBody),
           credentials,
           signal: abortRef.current.signal,
@@ -676,98 +445,114 @@ export function useChat<
           throw new Error(`HTTP ${res.status}: ${res.statusText}`);
         }
 
-        if (!res.body) {
-          throw new Error("Response body is null");
-        }
+        const reader = res.body?.getReader();
+        if (!reader) throw new Error("No response body");
 
-        const reader = res.body.getReader();
         const decoder = new TextDecoder();
+        let buffer = "";
 
         while (true) {
           const { done, value } = await reader.read();
           if (done) break;
 
-          const text = decoder.decode(value, { stream: true });
-
-          if (workerRef.current && !workerError) {
-            const packets: string[] = await new Promise((resolve, reject) => {
-              const timeout = setTimeout(() => {
-                reject(new Error("Worker timeout"));
-              }, 5000);
-
-              const handleMessage = (e: MessageEvent<WorkerMessage>) => {
-                clearTimeout(timeout);
-                workerRef.current?.removeEventListener(
-                  "message",
-                  handleMessage
-                );
-
-                if (e.data.type === "error") {
-                  reject(new Error(e.data.error));
-                } else {
-                  resolve(e.data.packets);
-                }
-              };
-
-              workerRef.current?.addEventListener("message", handleMessage);
-              workerRef.current?.postMessage(text);
-            });
-
-            for (const packet of packets) {
-              processChunk(packet, assistantMsg.id);
-            }
-          } else {
-            const lines = text.split("\n");
-            for (const line of lines) {
-              const trimmed = line.trim();
-              if (trimmed.startsWith("data: ") && trimmed !== "data: [DONE]") {
-                processChunk(trimmed.slice(6), assistantMsg.id);
-              }
-            }
+          if (!isMountedRef.current) {
+            reader.cancel();
+            break;
           }
 
-          if (experimental_throttle) {
-            await new Promise((r) => setTimeout(r, experimental_throttle));
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split("\n");
+
+          buffer = lines.pop() || "";
+
+          for (const line of lines) {
+            const trimmed = line.trim();
+            if (trimmed.startsWith("data: ")) {
+              const data = trimmed.slice(6);
+
+              if (data === "[DONE]") continue;
+
+              try {
+                const parsed = JSON.parse(data);
+                if (parsed.type === "usage") {
+                  updateUsage(parsed.data);
+                  continue;
+                }
+              } catch {}
+
+              handleChunk(data, assistantMsg.id);
+            }
           }
         }
+
+        if (batchTimeoutRef.current) {
+          clearTimeout(batchTimeoutRef.current);
+          batchTimeoutRef.current = null;
+        }
+        await processBatchedChunks(assistantMsg.id);
+
+        debouncedNotifyRef.current?.flush();
 
         updateMessage(assistantMsg.id, (m) => {
           const finalized = {
             ...m,
+            status: "ready" as const,
             parts: m.parts.map((p: any) =>
-              (p.type === "text" ||
-                p.type === "reasoning" ||
-                p.type === "thinking") &&
-              p.state === "streaming"
-                ? { ...p, state: "done" }
-                : p
+              p.state === "streaming" ? { ...p, state: "done" } : p
             ),
+            metadata: m.metadata as M,
           };
-          onFinish?.(finalized as UIMessage<M, D, T>);
+          onFinish?.(finalized);
           return finalized;
         });
 
-        streamBufferRef.current.delete(assistantMsg.id);
+        delete textAccumRef.current[assistantMsg.id];
+        chunkBatchRef.current = [];
       } catch (err: any) {
         if (err.name === "AbortError") {
-          console.log("[useChat] Request aborted");
+          setIsLoading(false);
           return;
         }
 
         const error = err instanceof Error ? err : new Error(String(err));
-        console.error("[useChat] Error:", error);
+
+        if (retryCount < maxRetries && !error.message.includes("Rate limit")) {
+          console.warn(`Retry attempt ${retryCount + 1}/${maxRetries}`);
+          await new Promise((resolve) =>
+            setTimeout(resolve, retryDelay * Math.pow(2, retryCount))
+          );
+
+          state.messages = state.messages.filter(
+            (m: UIMessage) => m.id !== assistantMsg.id
+          );
+          isStreamingRef.current.delete(assistantMsg.id);
+          delete textAccumRef.current[assistantMsg.id];
+          notify(id);
+
+          return append(msg, retryCount + 1);
+        }
 
         setError(error);
         onError?.(error);
 
         if (!keepLastMessageOnError) {
-          removeMessage(assistantMsg.id);
+          state.messages = state.messages.filter(
+            (m: UIMessage) => m.id !== assistantMsg.id
+          );
+          notify(id);
         }
 
-        streamBufferRef.current.delete(assistantMsg.id);
+        isStreamingRef.current.delete(assistantMsg.id);
+        delete textAccumRef.current[assistantMsg.id];
+        chunkBatchRef.current = [];
       } finally {
         setIsLoading(false);
         abortRef.current = null;
+
+        if (batchTimeoutRef.current) {
+          clearTimeout(batchTimeoutRef.current);
+          batchTimeoutRef.current = null;
+        }
       }
     },
     [
@@ -776,136 +561,159 @@ export function useChat<
       api,
       body,
       credentials,
-      experimental_throttle,
       headers,
+      enabledFeatures,
       keepLastMessageOnError,
+      maxRetries,
+      retryDelay,
       onError,
       onFinish,
       onResponse,
-      sendExtraMessageFields,
-      processChunk,
+      handleChunk,
+      processBatchedChunks,
+      processFile,
       setIsLoading,
       setError,
-      addMessage,
       updateMessage,
-      removeMessage,
-      fetchWithRetry,
+      updateUsage,
     ]
   );
 
-  /* ----------  CONVENIENCE METHODS  ---------- */
+  const stop = useCallback(() => {
+    abortRef.current?.abort();
+    abortRef.current = null;
 
-  const reload = useCallback(async () => {
-    const msgs = state.messages;
-    const lastUserIdx = msgs.findLastIndex((m) => m.role === "user");
-
-    if (lastUserIdx === -1) {
-      console.warn("[useChat] No user message to reload");
-      return;
+    if (batchTimeoutRef.current) {
+      clearTimeout(batchTimeoutRef.current);
+      batchTimeoutRef.current = null;
     }
 
-    setMessages(msgs.slice(0, lastUserIdx));
-    await append(msgs[lastUserIdx]);
+    chunkBatchRef.current = [];
+    debouncedNotifyRef.current?.flush();
+    setIsLoading(false);
+  }, [setIsLoading]);
+
+  const reload = useCallback(async () => {
+    const lastUserIdx = state.messages.findLastIndex(
+      (m: UIMessage) => m.role === "user"
+    );
+    if (lastUserIdx === -1) return;
+    setMessages(state.messages.slice(0, lastUserIdx));
+    await append(state.messages[lastUserIdx]);
   }, [append, setMessages]);
+
+  const clear = useCallback(() => {
+    state.messages = [];
+    state.input = "";
+    state.isLoading = false;
+    state.error = undefined;
+    state.usage = {
+      totalTokens: 0,
+      promptTokens: 0,
+      completionTokens: 0,
+      requests: 0,
+    };
+    state.rateLimiter.reset();
+    chunkBatchRef.current = [];
+    isStreamingRef.current.clear();
+    textAccumRef.current = {};
+    notify(id);
+  }, [id]);
 
   const regenerate = useCallback(async () => {
     const msgs = state.messages;
-    const lastAssistantIdx = msgs.findLastIndex((m) => m.role === "assistant");
+    const lastAssistantIdx = msgs.findLastIndex(
+      (m: UIMessage) => m.role === "assistant"
+    );
 
     if (lastAssistantIdx === -1) {
       console.warn("[useChat] No assistant message to regenerate");
       return;
     }
 
-    // Find the user message that triggered this assistant response
     const userMsgIdx = msgs
       .slice(0, lastAssistantIdx)
-      .findLastIndex((m) => m.role === "user");
+      .findLastIndex((m: UIMessage) => m.role === "user");
 
     if (userMsgIdx === -1) {
       console.warn("[useChat] No user message found before assistant message");
       return;
     }
 
-    // Remove the assistant message and everything after it
     setMessages(msgs.slice(0, lastAssistantIdx));
-
-    // Remove the user message that triggered this response
     setMessages(msgs.slice(0, userMsgIdx));
-
-    // Resend the user message to get a new response
     await append(msgs[userMsgIdx]);
   }, [append, setMessages]);
 
   const handleSubmit = useCallback(
-    (e?: React.FormEvent | KeyboardEvent, opts?: any) => {
+    (e?: React.FormEvent, opts?: any) => {
       e?.preventDefault();
-
-      const trimmedInput = state.input.trim();
-      if (!trimmedInput || state.isLoading) return;
-
-      const submitOpts = {
-        ...opts,
-        body: {
-          ...body,
-          id: id,
-          model: model,
-        },
-      };
-
-      append({ role: "user", content: trimmedInput, data: body }, submitOpts);
+      const trimmed = state.input.trim();
+      if (!trimmed || state.isLoading) return;
+      append({ role: "user", content: trimmed, ...opts });
       setInput("");
     },
-    [append, body, setInput, model, id]
+    [append, setInput]
   );
 
-  const handleInputChange = useCallback(
-    (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
-      setInput(e.target.value);
-    },
-    [setInput]
-  );
-
-  /* ----------  PUBLIC API  ---------- */
+  useEffect(() => {
+    const isStreaming = isStreamingRef.current;
+    const cleanupIsStreaming = () => {
+      if (isStreaming) {
+        isStreamingRef.current.clear();
+      }
+    };
+    return () => {
+      if (batchTimeoutRef.current) {
+        clearTimeout(batchTimeoutRef.current);
+      }
+      debouncedNotifyRef.current?.cleanup();
+      cleanupIsStreaming();
+      textAccumRef.current = {};
+    };
+  }, []);
 
   return useMemo(
     () => ({
-      messages: state.messages as UIMessage<M, D, T>[],
+      messages: state.messages,
       error: state.error,
       isLoading: state.isLoading,
       input: state.input,
+      usage: state.usage,
+      features: enabledFeatures,
       append,
       stop,
       reload,
       setInput,
       handleSubmit,
-      handleInputChange,
       regenerate,
-      setMessages: setMessages as any,
-      addToolResult,
-      addToolError,
+      handleInputChange: (e: any) => setInput(e.target.value),
+      setMessages,
       clear,
-      removeMessage,
-      updateMessage: updateMessage as any,
+      processFile,
     }),
     [
       state.messages,
       state.error,
       state.isLoading,
       state.input,
+      state.usage,
+      enabledFeatures,
       append,
       stop,
       reload,
       setInput,
-      handleSubmit,
       regenerate,
-      handleInputChange,
+      handleSubmit,
       setMessages,
-      addToolResult,
-      addToolError,
       clear,
-      removeMessage,
-      updateMessage,
+      processFile,
     ]
   );
+}
+
+if (typeof window !== "undefined") {
+  window.addEventListener("beforeunload", () => {
+    workerPool?.terminate();
+  });
 }

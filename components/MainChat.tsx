@@ -10,7 +10,6 @@ import { useEffect, useState } from "react";
 import { UseChatOptions } from "@/types/useChat";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { useRef } from "react";
-import { useSidebarStore } from "@/stores/useDashboardStore";
 
 interface MainChatProps {
   chatId?: string;
@@ -18,17 +17,23 @@ interface MainChatProps {
 
 export function MainChat({ chatId }: MainChatProps) {
   const [model, setModel] = useState("gpt-4o-mini");
-  const { isOpen } = useSidebarStore();
   const chat = useChat<UseChatOptions>({
     id: chatId,
-    persist: true,
+    persist: false,
     api: "/api/chat",
     model: model,
+    features: {
+      reasoning: true, // Enable chain-of-thought reasoning
+      thinking: true, // Enable thinking process display
+      toolCalling: true, // Enable tool/function calling
+      workflow: true, // Enable workflow steps
+      fileHandling: true, // Enable file uploads
+    },
     onError: (error) => {
       console.error("Chat error:", error);
     },
     onFinish: (message) => {
-      console.log("Message finished:", message.id);
+      console.log("Chat finished:", message.id);
     },
     onToolCall: (tool) => {
       console.log("Tool called:", tool.toolName);
@@ -134,7 +139,7 @@ export function MainChat({ chatId }: MainChatProps) {
                       virtualItem.index === 0
                         ? "pt-4"
                         : virtualItem.index === chat.messages.length - 1
-                        ? "pb-36"
+                        ? "pb-42"
                         : ""
                     }
                   >
@@ -153,7 +158,7 @@ export function MainChat({ chatId }: MainChatProps) {
           )}
         </div>
         <motion.div
-          initial={{ opacity: 0, y: 10 }}
+          initial={{ opacity: 0, y: 2 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.5, delay: 0.4 }}
           className="absolute bottom-0 z-50 w-full"

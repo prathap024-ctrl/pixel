@@ -2,6 +2,7 @@
 import React, { memo, useRef, useState, useCallback, useEffect } from "react";
 import { IconPlus, IconX } from "@tabler/icons-react";
 import { ArrowUpIcon } from "lucide-react";
+import { useDebouncedCallback } from "use-debounce";
 
 import {
   DropdownMenu,
@@ -20,7 +21,6 @@ import { Separator } from "@/components/ui/separator";
 import { Input } from "./ui/input";
 import Image from "next/image";
 import { AnimatePresence, motion } from "framer-motion";
-import { v4 as uuidv4 } from "uuid";
 
 interface FileData {
   file: File;
@@ -170,6 +170,11 @@ const Composer: React.FC<ComposerProps> = ({
     [input, selectedFiles, isLoading, onSubmit, clearAllFiles]
   );
 
+  const debouncedSetInput = useDebouncedCallback(
+    (value: string) => setInput(value),
+    50 
+  );
+
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
       if (e.key === "Enter" && !e.shiftKey) {
@@ -249,7 +254,7 @@ const Composer: React.FC<ComposerProps> = ({
             <InputGroupTextarea
               placeholder="Ask, Search or Chat..."
               value={input}
-              onChange={(e) => setInput(e.target.value)}
+              onChange={(e) => debouncedSetInput(e.target.value)}
               onKeyDown={handleKeyDown}
               disabled={isLoading}
               aria-label="Message input"

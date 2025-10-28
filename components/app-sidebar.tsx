@@ -21,13 +21,17 @@ import { ModeToggle } from "./ui/mode-toggle";
 import { useSidebarStore } from "@/stores/useDashboardStore";
 
 export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
-  const { isOpen } = useSidebarStore();
+    const { isOpen } = useSidebarStore();
   return (
     <Sidebar variant="inset" collapsible="icon" {...props}>
       <SidebarHeader>
         <SidebarMenu>
           <SidebarMenuItem>
-            <div className={`w-full flex items-center justify-evenly pt-2 ${isOpen ? "gap-2" : "gap-0"}`}>
+            <div
+              className={`w-full flex items-center justify-evenly pt-2 ${
+                isOpen ? "gap-2" : "gap-0"
+              }`}
+            >
               <SidebarMenuButton size="default" asChild>
                 <Link href="/">
                   <div className="text-sidebar-primary-foreground flex aspect-square size-4 items-center justify-center rounded-full">
@@ -35,7 +39,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
                   </div>
                   <div className="text-left text-sm leading-tight">
                     <span className="truncate font-medium">PixelPilot</span>
-                  </div> 
+                  </div>
                 </Link>
               </SidebarMenuButton>
               <div>{isOpen ? <ModeToggle /> : null}</div>
