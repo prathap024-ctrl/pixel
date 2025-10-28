@@ -135,7 +135,7 @@ export type UseChatOptions<
   D extends Record<string, any> = Record<string, any>
 > = {
   id?: string;
-  initialMessages?: UIMessage<M, D>[];
+  initialMessages?: UIMessage[];
   initialInput?: string;
   model?: string;
   api?: string;
@@ -144,7 +144,7 @@ export type UseChatOptions<
   body?: Record<string, any>;
   features?: Partial<ChatFeatures>;
   onResponse?: (res: Response) => void | Promise<void>;
-  onFinish?: (msg: UIMessage<M, D>) => void;
+  onFinish?: (msg: UIMessage) => void;
   onError?: (err: Error) => void;
   onToolCall?: (toolCall: ToolCallUIPart) => void;
   onWorkflowStep?: (step: WorkflowStepUIPart) => void;
@@ -160,7 +160,7 @@ export type UseChatHelpers<
   M = unknown,
   D extends Record<string, any> = Record<string, any>
 > = {
-  messages: UIMessage<M, D>[];
+  messages: UIMessage[];
   error: Error | undefined;
   isLoading: boolean;
   input: string;
@@ -168,7 +168,7 @@ export type UseChatHelpers<
   features: ChatFeatures;
   append: (
     msg:
-      | UIMessage<M, D>
+      | UIMessage
       | { role: "user"; content: string; data?: any; files?: File[] }
   ) => Promise<void>;
   stop: () => void;
@@ -177,7 +177,7 @@ export type UseChatHelpers<
   regenerate: () => Promise<void>;
   handleSubmit: (e?: any, opts?: any) => void;
   handleInputChange: (e: any) => void;
-  setMessages: (m: UIMessage<M, D>[]) => void;
+  setMessages: (m: UIMessage[]) => void;
   clear: () => void;
   processFile: (file: File) => Promise<any>;
 };
