@@ -102,12 +102,17 @@ export function MainChat({ chatId }: MainChatProps) {
               {virtual.getVirtualItems().map((virtualItem) => {
                 const msg = chat.messages[virtualItem.index];
 
-                /* 2️⃣  use stable key while streaming */
-                const rowKey =
+                const stablePart =
                   chat.isLoading &&
                   virtualItem.index === chat.messages.length - 1
-                    ? streamingKeyRef.current // same key while streaming
-                    : msg.id; // normal key otherwise
+                    ? streamingKeyRef.current
+                    : msg.id;
+
+                /* 2️⃣  unique part: always different for every index */
+                const uniquePart = virtualItem.index;
+
+                /* 3️⃣  composite key – unique per index, stable for stream */
+                const rowKey = `${stablePart}-${uniquePart}`;
 
                 return (
                   <div
