@@ -54,6 +54,7 @@ export function useChat<
   const isMountedRef = useRef(true);
   const isStreamingRef = useRef<Set<string>>(new Set());
   const textAccumRef = useRef<Record<string, string>>({});
+  const reasoningAccumRef = useRef<Record<string, string>>({});
 
   const enabledFeatures: ChatFeatures = useMemo(
     () => ({
@@ -195,15 +196,55 @@ export function useChat<
   );
 
   const updateUsage = useCallback(
-    (usage: Partial<UsageStats>) => {
+    (usageData: {
+      promptTokens: number;
+      completionTokens: number;
+      reasoningTokens?: number;
+      totalTokens: number;
+      model?: string;
+    }) => {
+      const {
+        promptTokens = 0,
+        completionTokens = 0,
+        reasoningTokens = 0,
+        totalTokens = 0,
+        model,
+      } = usageData;
+
+      // Update global usage
       state.usage = {
-        totalTokens: (state.usage.totalTokens || 0) + (usage.totalTokens || 0),
-        promptTokens:
-          (state.usage.promptTokens || 0) + (usage.promptTokens || 0),
+        totalTokens: (state.usage.totalTokens || 0) + totalTokens,
+        promptTokens: (state.usage.promptTokens || 0) + promptTokens,
         completionTokens:
-          (state.usage.completionTokens || 0) + (usage.completionTokens || 0),
+          (state.usage.completionTokens || 0) + completionTokens,
+        reasoningTokens: (state.usage.reasoningTokens || 0) + reasoningTokens,
         requests: (state.usage.requests || 0) + 1,
+        models: state.usage.models || {},
       };
+
+      // Update per-model usage
+      if (model) {
+        if (!state.usage.models[model]) {
+          state.usage.models[model] = {
+            promptTokens: 0,
+            completionTokens: 0,
+            reasoningTokens: 0,
+            totalTokens: 0,
+            requests: 0,
+          };
+        }
+
+        state.usage.models[model] = {
+          promptTokens: state.usage.models[model].promptTokens + promptTokens,
+          completionTokens:
+            state.usage.models[model].completionTokens + completionTokens,
+          reasoningTokens:
+            state.usage.models[model].reasoningTokens + reasoningTokens,
+          totalTokens: state.usage.models[model].totalTokens + totalTokens,
+          requests: state.usage.models[model].requests + 1,
+        };
+      }
+
       notify(id);
     },
     [id]
@@ -299,12 +340,49 @@ export function useChat<
                 return;
               }
 
+              if (updateType === "reasoning" || updateType === "thinking") {
+                const accKey = `${assistantId}-${updateType}`;
+                if (!reasoningAccumRef.current[accKey])
+                  reasoningAccumRef.current[accKey] = "";
+
+                /* 1. append delta */
+                reasoningAccumRef.current[accKey] += update.data.text;
+
+                /* 2. find or create part */
+                const idx = newMsg.parts.findIndex(
+                  (p: any) => p.type === updateType
+                );
+                if (idx >= 0) {
+                  const part = newMsg.parts[idx] as any;
+                  part.text = reasoningAccumRef.current[accKey]; // <-- full accumulated
+                  part.state = "streaming";
+                  part._gen = (part._gen ?? 0) + 1; // force React key change
+                } else {
+                  newMsg.parts.push({
+                    type: updateType,
+                    text: reasoningAccumRef.current[accKey],
+                    state: "streaming",
+                    _gen: 1,
+                  });
+                }
+                return;
+              }
+
               if (updateType === "finish") {
                 newMsg.parts = newMsg.parts.map((p: any) =>
-                  p.type === "text" ? { ...p, state: "done" } : p
+                  p.type === "text" ||
+                  p.type === "reasoning" ||
+                  p.type === "thinking"
+                    ? { ...p, state: "done" }
+                    : p
                 );
                 isStreamingRef.current.delete(assistantId);
                 delete textAccumRef.current[assistantId];
+                Object.keys(reasoningAccumRef.current).forEach((key) => {
+                  if (key.startsWith(assistantId)) {
+                    delete reasoningAccumRef.current[key];
+                  }
+                });
                 return;
               }
 
@@ -474,8 +552,15 @@ export function useChat<
 
               try {
                 const parsed = JSON.parse(data);
+
                 if (parsed.type === "usage") {
-                  updateUsage(parsed.data);
+                  updateUsage({
+                    promptTokens: parsed.data.promptTokens || 0,
+                    completionTokens: parsed.data.completionTokens || 0,
+                    reasoningTokens: parsed.data.reasoningTokens || 0,
+                    totalTokens: parsed.data.totalTokens || 0,
+                    model: model, // Pass current model
+                  });
                   continue;
                 }
               } catch {}
@@ -493,14 +578,16 @@ export function useChat<
 
         debouncedNotifyRef.current?.flush();
 
-        updateMessage(assistantMsg.id, (m) => {
-          const finalized = {
+        updateMessage(assistantMsg.id, (m: UIMessage) => {
+          const finalized: UIMessage = {
             ...m,
             status: "ready" as const,
             parts: m.parts.map((p: any) =>
               p.state === "streaming" ? { ...p, state: "done" } : p
             ),
-            metadata: m.metadata as M,
+            metadata: m.metadata as M extends Record<string, any>
+              ? M
+              : { [key: string]: any },
           };
           onFinish?.(finalized);
           return finalized;
@@ -611,7 +698,9 @@ export function useChat<
       totalTokens: 0,
       promptTokens: 0,
       completionTokens: 0,
+      reasoningTokens: 0,
       requests: 0,
+      models: {},
     };
     state.rateLimiter.reset();
     chunkBatchRef.current = [];
@@ -656,6 +745,18 @@ export function useChat<
     [append, setInput]
   );
 
+  const getModelUsage = useCallback((modelId: string) => {
+    return (
+      state.usage.models?.[modelId] || {
+        promptTokens: 0,
+        completionTokens: 0,
+        reasoningTokens: 0,
+        totalTokens: 0,
+        requests: 0,
+      }
+    );
+  }, []);
+
   useEffect(() => {
     const isStreaming = isStreamingRef.current;
     const cleanupIsStreaming = () => {
@@ -691,6 +792,7 @@ export function useChat<
       setMessages,
       clear,
       processFile,
+      getModelUsage,
     }),
     [
       state.messages,
@@ -708,6 +810,7 @@ export function useChat<
       setMessages,
       clear,
       processFile,
+      getModelUsage,
     ]
   );
 }

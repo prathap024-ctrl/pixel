@@ -18,6 +18,7 @@ export type ReasoningUIPart = {
   text: string;
   state: "streaming" | "done";
   metadata?: Record<string, any>;
+  _gen?: number;
 };
 
 export type ThinkingUIPart = {
@@ -107,6 +108,16 @@ export interface UsageStats {
   promptTokens: number;
   completionTokens: number;
   requests: number;
+  models?: Record<
+    string,
+    {
+      promptTokens: number;
+      completionTokens: number;
+      reasoningTokens: number;
+      totalTokens: number;
+      requests: number;
+    }
+  >;
 }
 
 // Feature flags

@@ -106,25 +106,21 @@ export class AIService {
     });
   }
 
-  async *streamReasoning(prompt: string): AsyncGenerator<string> {
+  async *streamReasoning(prompt: string): AsyncGenerator<object> {
     const steps = [
       "Analyzing query",
       "Processing context",
       "Formulating response",
     ];
-
-    for (const step in steps) {
-      yield JSON.stringify({
+    for (const step of steps) {
+      yield {
         type: "reasoning",
-        text: "Analyzing: " + step + "\n",
+        text: `Analyzing: ${step}\n`,
         state: "streaming",
-      });
+      };
       await new Promise((r) => setTimeout(r, 150));
     }
-    yield JSON.stringify({
-      type: "finish",
-      finishedTypes: ["reasoning"],
-    });
+    yield { type: "finish", finishedTypes: ["reasoning"] };
   }
 
   async *streamToolCall(toolName: string, args: any): AsyncGenerator<string> {

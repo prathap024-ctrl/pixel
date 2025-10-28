@@ -69,7 +69,10 @@ function ConversationScreen({ messages, isLoading, regenerate }: Props) {
                     switch (part.type) {
                       case "reasoning":
                         return (
-                          <div key={key} className="relative">
+                          <div
+                            key={`reasoning-${msg.id}-${idx}`} // Most stable
+                            className="relative"
+                          >
                             <ReasoningResponse
                               part={part}
                               messages={msg}

@@ -13,6 +13,8 @@ type WorkerTaskData = ProcessBatchData;
 interface StreamingState {
   accumulatedText: string;
   lastUpdated: number;
+  accumulatedReasoning?: string;
+  accumulatedThinking?: string;
 }
 
 const streamingStates = new Map<string, StreamingState>();
@@ -54,6 +56,8 @@ function getStreamingState(assistantId: string): StreamingState {
     streamingStates.set(assistantId, {
       accumulatedText: "",
       lastUpdated: Date.now(),
+      accumulatedReasoning: "",
+      accumulatedThinking: "",
     });
   }
   const state = streamingStates.get(assistantId)!;
@@ -119,16 +123,88 @@ function processChunk(
     return;
   }
 
+  if (parsed.type === "reasoning" && parsed.text && features.reasoning) {
+    const newText = validateText(parsed.text);
+
+    // Accumulate internally
+    state.accumulatedReasoning = validateText(
+      (state.accumulatedReasoning || "") + newText
+    );
+
+    // Send ONLY new chunk
+    updates.push({
+      type: "reasoning",
+      data: {
+        type: "reasoning",
+        text: newText, // Send ONLY new chunk
+        state: "streaming",
+      },
+    });
+    return;
+  }
+
+  // Handle thinking streaming
+  if (parsed.type === "thinking" && parsed.text && features.thinking) {
+    const newText = validateText(parsed.text);
+
+    // Accumulate internally
+    state.accumulatedThinking = validateText(
+      (state.accumulatedThinking || "") + newText
+    );
+
+    // Send ONLY new chunk
+    updates.push({
+      type: "thinking",
+      data: {
+        type: "thinking",
+        text: newText, // Send ONLY new chunk
+        state: "streaming",
+      },
+    });
+    return;
+  }
+
   // Handle finish - clean up
   if (parsed.type === "finish") {
-    streamingStates.delete(assistantId);
+    // Send final accumulated texts before cleanup
+    if (state.accumulatedText) {
+      updates.push({
+        type: "text",
+        data: {
+          type: "text",
+          text: state.accumulatedText,
+          state: "done",
+        },
+      });
+    }
 
-    // Send finish signal with accumulated text
+    if (state.accumulatedReasoning) {
+      updates.push({
+        type: "reasoning",
+        data: {
+          type: "reasoning",
+          text: state.accumulatedReasoning,
+          state: "done",
+        },
+      });
+    }
+
+    if (state.accumulatedThinking) {
+      updates.push({
+        type: "thinking",
+        data: {
+          type: "thinking",
+          text: state.accumulatedThinking,
+          state: "done",
+        },
+      });
+    }
+
+    streamingStates.delete(assistantId);
     updates.push({
       type: "finish",
       data: {
         type: "finish",
-        text: state.accumulatedText,
       },
     });
     return;

@@ -74,10 +74,10 @@ export async function POST(req: NextRequest) {
 
           // Stream reasoning
           if (showReasoning) {
-            for await (const chunk of aiService.streamReasoning(
+            for await (const obj of aiService.streamReasoning(
               lastMessage.content
             )) {
-              send(chunk);
+              send(`data: ${JSON.stringify(obj)}\n\n`); // <-- double-stringised
             }
           }
 
@@ -112,7 +112,7 @@ export async function POST(req: NextRequest) {
 
           if (!response.ok) {
             const errorText = await response.text();
-            console.error("AI service error:", response.status, errorText);
+            console.error("AI service error:", errorText);
             throw new Error(
               `AI service error: ${response.status} - ${errorText}`
             );

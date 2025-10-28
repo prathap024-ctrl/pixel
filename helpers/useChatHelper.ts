@@ -27,7 +27,9 @@ export function getState(id: string) {
         totalTokens: 0,
         promptTokens: 0,
         completionTokens: 0,
+        reasoningTokens: 0,
         requests: 0,
+        models: {}, // NEW: Track per model
       },
       rateLimiter: new RateLimiter(),
     });

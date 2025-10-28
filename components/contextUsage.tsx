@@ -9,6 +9,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "./ui/dialog";
+import { getPricing } from "@/lib/utils";
 
 interface UsageChatProps {
   maxTokens?: number;
@@ -20,7 +21,7 @@ interface UsageChatProps {
 
 export const UsageChat = memo(function UsageChat({
   maxTokens = 100_000,
-  modelId = "openai:gpt-4",
+  modelId,
   warningThreshold = 80,
   criticalThreshold = 95,
   onTokensExhausted,
@@ -33,10 +34,13 @@ export const UsageChat = memo(function UsageChat({
   }>({ level: "normal", tokens: 0 });
   const hasShownInitialRef = useRef(false);
 
-  const PRICING = { input: 0.03, output: 0.06, reasoning: 0.12 };
+  const PRICING = getPricing(modelId);
   const USD_TO_INR = 83.5;
 
-  const safeNumber = (v: any) => (Number.isNaN(Number(v)) ? 0 : Number(v));
+  const safeNumber = (v: any): number => {
+    const n = Number(v);
+    return Number.isNaN(n) ? 0 : n;
+  };
 
   const promptTokens = safeNumber(usage.promptTokens);
   const completionTokens = safeNumber(usage.completionTokens);
@@ -46,8 +50,9 @@ export const UsageChat = memo(function UsageChat({
 
   const inputCostUSD = (promptTokens / 1000) * PRICING.input;
   const outputCostUSD = (completionTokens / 1000) * PRICING.output;
-  const reasoningCostUSD = (reasoningTokens / 1000) * PRICING.reasoning;
-  const totalCostUSD = inputCostUSD + outputCostUSD + reasoningCostUSD;
+  const reasoningCostUSD = (reasoningTokens / 1000) * (PRICING?.reasoning ?? 0);
+  const totalCostUSD =
+    inputCostUSD + outputCostUSD + reasoningCostUSD
 
   const inputCost = inputCostUSD * USD_TO_INR;
   const outputCost = outputCostUSD * USD_TO_INR;
@@ -150,19 +155,24 @@ export const UsageChat = memo(function UsageChat({
 
   return (
     <Dialog>
-      <DialogTrigger className="cursor-pointer bg-accent py-1 px-2 rounded-full">{usagePercent.toFixed(1)}%</DialogTrigger>
+      <DialogTrigger className="cursor-pointer bg-accent py-1 px-2 rounded-full">
+        {usagePercent.toFixed(1)}%
+      </DialogTrigger>
+
       <DialogContent>
         <DialogHeader>
           <DialogTitle>Token Usage</DialogTitle>
+
+          {/* everything below lives INSIDE DialogDescription */}
           <DialogDescription asChild>
             <section className={`${getStatusColor()} transition-colors`}>
-              {/* Header */}
-              <header className="mb-4 flex items-center justify-between">
-                <p className="text-sm text-muted-foreground">
+              {/* ------- header ------- */}
+              <p className="mb-4 flex items-center justify-between">
+                <span className="text-sm text-muted-foreground">
                   Model: {modelId}
-                </p>
+                </span>
                 <span
-                  className={` px-3 py-1 text-sm rounded-full font-medium ${
+                  className={`rounded-full px-3 py-1 text-sm font-medium ${
                     isExhausted || isCritical
                       ? "bg-red-200 text-red-800"
                       : isWarning
@@ -172,23 +182,28 @@ export const UsageChat = memo(function UsageChat({
                 >
                   {getStatusText()}
                 </span>
-              </header>
+              </p>
 
-              {/* Main Stats */}
-              <div className="mb-4 grid grid-cols-2 gap-4 md:grid-cols-4">
-                <article className=" bg-background p-3">
-                  <p className="text-xs text-muted-foreground">Used</p>
-                  <p className="text-lg font-bold text-muted-foreground">
+              {/* ------- stats ------- */}
+              <p className="mb-4 grid grid-cols-2 gap-4 md:grid-cols-4">
+                <span className="bg-background p-3">
+                  <span className="text-xs text-muted-foreground">Used</span>
+                  <br />
+                  <span className="text-lg font-bold text-muted-foreground">
                     {usedTokens.toLocaleString()}
-                  </p>
-                  <p className="text-xs text-muted-foreground">
+                  </span>
+                  <br />
+                  <span className="text-xs text-muted-foreground">
                     {usagePercent.toFixed(1)}%
-                  </p>
-                </article>
+                  </span>
+                </span>
 
-                <article className=" bg-background p-3">
-                  <p className="text-xs text-muted-foreground">Remaining</p>
-                  <p
+                <span className="bg-background p-3">
+                  <span className="text-xs text-muted-foreground">
+                    Remaining
+                  </span>
+                  <br />
+                  <span
                     className={`text-lg font-bold ${
                       remainingTokens <= 0
                         ? "text-red-600"
@@ -196,54 +211,65 @@ export const UsageChat = memo(function UsageChat({
                     }`}
                   >
                     {remainingTokens.toLocaleString()}
-                  </p>
-                  <p className="text-xs text-muted-foreground">
+                  </span>
+                  <br />
+                  <span className="text-xs text-muted-foreground">
                     of {maxTokens.toLocaleString()}
-                  </p>
-                </article>
+                  </span>
+                </span>
 
-                <article className=" bg-background p-3">
-                  <p className="text-xs text-muted-foreground">Requests</p>
-                  <p className="text-lg font-bold text-muted-foreground">
+                <span className="bg-background p-3">
+                  <span className="text-xs text-muted-foreground">
+                    Requests
+                  </span>
+                  <br />
+                  <span className="text-lg font-bold text-muted-foreground">
                     {usage.requests}
-                  </p>
-                  <p className="text-xs text-muted-foreground">API calls</p>
-                </article>
+                  </span>
+                  <br />
+                  <span className="text-xs text-muted-foreground">
+                    API calls
+                  </span>
+                </span>
 
-                <article className=" bg-background p-3">
-                  <p className="text-xs text-muted-foreground">Total Cost</p>
-                  <p className="text-lg font-bold text-muted-foreground">
+                <span className="bg-background p-3">
+                  <span className="text-xs text-muted-foreground">
+                    Total Cost
+                  </span>
+                  <br />
+                  <span className="text-lg font-bold text-muted-foreground">
                     {formatINR(totalCost)}
-                  </p>
-                  <p className="text-xs text-muted-foreground">INR</p>
-                </article>
-              </div>
+                  </span>
+                  <br />
+                  <span className="text-xs text-muted-foreground">INR</span>
+                </span>
+              </p>
 
-              {/* Progress Bar */}
-              <div className="mb-4">
-                <div className="flex items-center justify-between mb-2">
-                  <p className="text-sm font-medium text-muted-foreground">
+              {/* ------- progress bar ------- */}
+              <p className="mb-4">
+                <span className="flex items-center justify-between mb-2">
+                  <span className="text-sm font-medium text-muted-foreground">
                     Progress
-                  </p>
-                  <p className="text-sm text-muted-foreground">
+                  </span>
+                  <span className="text-sm text-muted-foreground">
                     {usagePercent.toFixed(1)}%
-                  </p>
-                </div>
-                <div className="h-3 overflow-hidden rounded-full bg-gray-400">
-                  <div
-                    className={`h-full transition-all duration-300 ${getProgressColor()}`}
+                  </span>
+                </span>
+                <span className="block h-3 overflow-hidden rounded-full bg-gray-400">
+                  <span
+                    className={`block h-full transition-all duration-300 ${getProgressColor()}`}
                     style={{ width: `${Math.min(usagePercent, 100)}%` }}
                   />
-                </div>
-              </div>
+                </span>
+              </p>
 
-              {/* Token Breakdown */}
-              <article className=" bg-background p-3 mb-4">
-                <h4 className="mb-2 text-sm font-semibold text-muted-foreground">
+              {/* ------- token breakdown ------- */}
+              <p className="bg-background p-3 mb-4">
+                <span className="mb-2 block text-sm font-semibold text-muted-foreground">
                   Token Breakdown
-                </h4>
-                <div className="space-y-2 text-sm">
-                  <div className="flex justify-between">
+                </span>
+                <span className="space-y-2 text-sm">
+                  <span className="flex justify-between">
                     <span className="text-muted-foreground">
                       Prompt Tokens:
                     </span>
@@ -251,8 +277,9 @@ export const UsageChat = memo(function UsageChat({
                       {usage.promptTokens.toLocaleString()} (
                       {formatINR(inputCost)})
                     </span>
-                  </div>
-                  <div className="flex justify-between">
+                  </span>
+
+                  <span className="flex justify-between">
                     <span className="text-muted-foreground">
                       Completion Tokens:
                     </span>
@@ -260,19 +287,21 @@ export const UsageChat = memo(function UsageChat({
                       {usage.completionTokens.toLocaleString()} (
                       {formatINR(outputCost)})
                     </span>
-                  </div>
+                  </span>
+
                   {(usage as any).reasoningTokens > 0 && (
-                    <div className="flex justify-between">
+                    <span className="flex justify-between">
                       <span className="text-muted-foreground">
                         Reasoning Tokens:
                       </span>
                       <span className="font-medium text-muted-foreground">
-                        {((usage as any).reasoningTokens || 0).toLocaleString()}{" "}
-                        ({formatINR(reasoningCost)})
+                        {(usage as any).reasoningTokens?.toLocaleString()} (
+                        {formatINR(reasoningCost)})
                       </span>
-                    </div>
+                    </span>
                   )}
-                  <div className="border-t border-gray-200 pt-2 flex justify-between">
+
+                  <span className="border-t border-gray-200 pt-2 flex justify-between">
                     <span className="font-semibold text-muted-foreground">
                       Total:
                     </span>
@@ -280,37 +309,34 @@ export const UsageChat = memo(function UsageChat({
                       {usage.totalTokens.toLocaleString()} (
                       {formatINR(totalCost)})
                     </span>
-                  </div>
-                </div>
-              </article>
+                  </span>
+                </span>
+              </p>
 
-              {/* Status Message */}
+              {/* ------- status messages ------- */}
               {isExhausted && (
-                <aside className=" bg-red-100 p-3 text-sm text-red-800">
-                  <p className="font-semibold">🚨 Token Limit Reached</p>
-                  <p>
-                    All {maxTokens.toLocaleString()} tokens have been used.
-                    Requests are disabled.
-                  </p>
-                </aside>
+                <p className="bg-red-100 p-3 text-sm text-red-800">
+                  <span className="font-semibold">🚨 Token Limit Reached</span>
+                  <br />
+                  All {maxTokens.toLocaleString()} tokens have been used.
+                  Requests are disabled.
+                </p>
               )}
               {isCritical && !isExhausted && (
-                <aside className=" bg-red-100 p-3 text-sm text-red-800">
-                  <p className="font-semibold">⚠️ Critical Usage Level</p>
-                  <p>
-                    You are approaching the token limit. Only{" "}
-                    {remainingTokens.toLocaleString()} tokens remaining.
-                  </p>
-                </aside>
+                <p className="bg-red-100 p-3 text-sm text-red-800">
+                  <span className="font-semibold">⚠️ Critical Usage Level</span>
+                  <br />
+                  You are approaching the token limit. Only{" "}
+                  {remainingTokens.toLocaleString()} tokens remaining.
+                </p>
               )}
               {isWarning && !isCritical && !isExhausted && (
-                <aside className=" bg-yellow-100 p-3 text-sm text-yellow-800">
-                  <p className="font-semibold">⚠️ High Usage</p>
-                  <p>
-                    Token usage is at {usagePercent.toFixed(1)}%. Consider your
-                    usage patterns.
-                  </p>
-                </aside>
+                <p className="bg-yellow-100 p-3 text-sm text-yellow-800">
+                  <span className="font-semibold">⚠️ High Usage</span>
+                  <br />
+                  Token usage is at {usagePercent.toFixed(1)}%. Consider your
+                  usage patterns.
+                </p>
               )}
             </section>
           </DialogDescription>

@@ -1,4 +1,4 @@
-import React, { memo } from "react";
+import React from "react";
 import {
   Reasoning,
   ReasoningContent,
@@ -12,36 +12,37 @@ interface ReasoningResponseProps {
   partIndex: number;
 }
 
-export const ReasoningResponse = memo(function ReasoningResponse({
+export function ReasoningResponse({
   part,
   messages,
   partIndex,
 }: ReasoningResponseProps) {
-  // ✅ FIX: Check if this reasoning part is currently streaming
-  // Don't depend on isLastPart or message status alone
+  // More flexible streaming detection
   const isStreaming = part.state === "streaming";
+  const hasContent = part.text && part.text.length > 0;
 
-  console.log("🎯 Reasoning state:", {
-    partState: part.state,
-    messageStatus: messages.status,
-    partIndex,
-    totalParts: messages.parts.length,
-    isStreaming,
-    textLength: part.text?.length,
-    textPreview: part.text?.substring(0, 100),
-  });
+  // Don't render empty reasoning during streaming
+  if (!hasContent && isStreaming) {
+    return null;
+  }
+
+  // Don't render empty reasoning that's done
+  if (!hasContent && part.state === "done") {
+    return null;
+  }
 
   return (
     <div className="reasoning-response">
-      <Reasoning className="w-full" isStreaming={isStreaming}>
+      <Reasoning
+        className="w-full"
+        isStreaming={isStreaming}
+        key={(part as any)._gen} // Use generation counter to force re-renders
+      >
         <ReasoningTrigger />
-        <ReasoningContent>
-          {part.text ||
-            (isStreaming ? "Thinking..." : "No reasoning available")}
-        </ReasoningContent>
+        <ReasoningContent>{part.text}</ReasoningContent>
       </Reasoning>
     </div>
   );
-});
+}
 
 ReasoningResponse.displayName = "ReasoningResponse";
