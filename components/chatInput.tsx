@@ -276,7 +276,7 @@ function PureMultimodalInput({
   );
 
   return (
-    <div className={cn("flex w-full max-w-2xl flex-col gap-4", className)}>
+    <div className={cn("relative flex w-full flex-col gap-4", className)}>
       {messages.length === 0 &&
         attachments.length === 0 &&
         uploadQueue.length === 0 && (
