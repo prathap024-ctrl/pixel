@@ -222,8 +222,7 @@ export async function POST(request: Request) {
               dataStream.write({ type: "data-usage", data: finalMergedUsage });
             } catch (err) {
               console.warn("TokenLens enrichment failed", err);
-              finalMergedUsage = usage;
-              dataStream.write({ type: "data-usage", data: finalMergedUsage });
+              dataStream.write({ type: "data-usage", data: usage });
             }
           },
         });
