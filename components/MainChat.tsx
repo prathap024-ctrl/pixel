@@ -16,7 +16,7 @@ import { fetcher, fetchWithErrorHandlers, generateUUID } from "@/lib/utils";
 import { Artifact } from "./artifact";
 import { useDataStream } from "./data-stream-provider";
 import { Messages } from "./messages";
-import { Composer } from "./Composer";
+import { Composer } from "@/components/Composer";
 import { getChatHistoryPaginationKey } from "./sidebar-history";
 import type { VisibilityType } from "./visibility-selector";
 
