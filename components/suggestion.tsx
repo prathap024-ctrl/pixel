@@ -3,8 +3,7 @@
 import { AnimatePresence, motion } from "framer-motion";
 import { useState } from "react";
 import { useWindowSize } from "usehooks-ts";
-
-import type { UISuggestion } from "@/lib/editor/suggestions";
+import type { UISuggestion } from "@/lib/editor/suggestions"
 import { cn } from "@/lib/utils";
 import type { ArtifactKind } from "./artifact";
 import { CrossIcon, MessageIcon } from "./icons";
