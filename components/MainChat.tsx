@@ -147,7 +147,7 @@ export function Chat({
           votes={votes}
         />
 
-        <div className="sticky bottom-0 w-full max-w-2xl mx-auto">
+        <div className="sticky bottom-0 w-full max-w-2xl mx-auto pb-0 md:pb-4">
           {!isReadonly && (
             <Composer
               attachments={attachments}

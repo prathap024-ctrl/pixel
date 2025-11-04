@@ -67,11 +67,11 @@ const PurePreviewMessage = ({
           "justify-start": message.role === "assistant",
         })}
       >
-        {/*  {message.role === "assistant" && (
-          <div className="-mt-1 flex size-8 shrink-0 items-center justify-center rounded-full bg-background ring-1 ring-border">
+        {message.role === "assistant" && (
+          <div>
             <ThemedLogo className="size-4" />
           </div>
-        )} */}
+        )}
 
         <div
           className={cn("flex flex-col", {
@@ -129,7 +129,7 @@ const PurePreviewMessage = ({
                       className={cn({
                         "w-fit warp-break-word px-3 py-2 text-right text-white":
                           message.role === "user",
-                        "bg-transparent px-2 py-2 text-left":
+                        "bg-transparent px-2 text-left":
                           message.role === "assistant",
                       })}
                       data-testid="message-content"
@@ -302,7 +302,7 @@ export const ThinkingMessage = () => {
       transition={{ duration: 0.2 }}
     >
       <div className="flex items-start justify-start gap-3">
-        <div className="-mt-1 flex size-8 shrink-0 items-center justify-center rounded-full bg-background ring-1 ring-border">
+        <div>
           <ThemedLogo className="size-4" />
         </div>
 

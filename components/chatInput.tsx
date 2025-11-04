@@ -296,7 +296,7 @@ function PureMultimodalInput({
       />
 
       <form
-        className="rounded-t-2xl p-2 border-t border-r border-l border-border bg-background shadow-xs transition-all duration-200 focus-within:border-border hover:border-muted-foreground/50"
+        className="rounded-t-2xl md:rounded-2xl p-2 border-t border-r border-l md:border border-border bg-background shadow-xs transition-all duration-200 focus-within:border-border hover:border-muted-foreground/50"
         onSubmit={handleSubmit}
       >
         <div>
