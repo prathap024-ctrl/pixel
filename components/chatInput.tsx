@@ -296,7 +296,7 @@ function PureMultimodalInput({
       />
 
       <form
-        className="rounded-2xl p-2 border border-border bg-background shadow-xs transition-all duration-200 focus-within:border-border hover:border-muted-foreground/50"
+        className="rounded-t-2xl p-2 border-t border-border bg-none shadow-xs transition-all duration-200 focus-within:border-border hover:border-muted-foreground/50"
         onSubmit={handleSubmit}
       >
         <div>
@@ -337,7 +337,7 @@ function PureMultimodalInput({
         <div className={`flex flex-col gap-2`}>
           <Textarea
             autoFocus
-            className={`grow resize-none ${input.length > 100 ? "min-h-42" : "min-h-8"} bg-background text-sm shadow-none outline-none ring-0 [-ms-overflow-style:none] [scrollbar-width:none] placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-0 focus-visible:ring-offset-0 [&::-webkit-scrollbar]:hidden`}
+            className={`grow resize-none ${input.length > 100 ? "min-h-42" : "min-h-8"} bg-none text-sm shadow-none outline-none ring-0 [-ms-overflow-style:none] [scrollbar-width:none] placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-0 focus-visible:ring-offset-0 [&::-webkit-scrollbar]:hidden`}
             onChange={handleInput}
             onKeyDown={handleKeyDown}
             placeholder="Send a message..."

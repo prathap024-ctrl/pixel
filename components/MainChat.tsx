@@ -134,7 +134,7 @@ export function Chat({
 
   return (
     <>
-      <div className="overscroll-behavior-contain flex h-[98vh] min-w-0 touch-pan-y flex-col">
+      <div className="overscroll-behavior-contain flex h-screen min-w-0 touch-pan-y flex-col">
         <Messages
           chatId={id}
           isArtifactVisible={isArtifactVisible}
@@ -147,7 +147,7 @@ export function Chat({
           votes={votes}
         />
 
-        <div className="sticky bottom-0 z-1 mx-auto flex w-full max-w-2xl gap-2 border-t-0 px-2 md:px-4">
+        <div className="sticky bottom-0 w-full max-w-2xl mx-auto">
           {!isReadonly && (
             <Composer
               attachments={attachments}
