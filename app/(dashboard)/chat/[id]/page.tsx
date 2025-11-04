@@ -1,6 +1,6 @@
 import { cookies, headers } from "next/headers";
 import { notFound } from "next/navigation";
-import { Chat } from "@/components/MainChat";
+import { Chat } from "@/components/mainChat";
 import { DataStreamHandler } from "@/components/data-stream-handler";
 import { getChatById, getMessagesByChatId } from "@/app/lib/db/queries";
 import { convertToUIMessages } from "@/lib/utils";

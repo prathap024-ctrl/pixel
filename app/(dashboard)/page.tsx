@@ -1,5 +1,5 @@
 import { cookies } from "next/headers";
-import { Chat } from "../../components/MainChat";
+import { Chat } from "../../components/mainChat";
 import { DataStreamHandler } from "@/components/data-stream-handler";
 import { generateUUID } from "@/lib/utils";
 
