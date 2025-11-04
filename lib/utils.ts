@@ -1,41 +1,116 @@
-import { clsx, type ClassValue } from "clsx";
-import { twMerge } from "tailwind-merge";
+import type {
+  CoreAssistantMessage,
+  CoreToolMessage,
+  UIMessage,
+  UIMessagePart,
+} from 'ai';
+import { type ClassValue, clsx } from 'clsx';
+import { formatISO } from 'date-fns';
+import { twMerge } from 'tailwind-merge';
+import type { DBMessage, Document } from '@/app/lib/db/schema';
+import { ChatSDKError, type ErrorCode } from './errors';
+import type { ChatMessage, ChatTools, CustomUIDataTypes } from './types';
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
-export const MODEL_PRICING: Record<
-  string,
-  { input: number; output: number; reasoning?: number }
-> = {
-  /* ------------------ OpenAI ------------------ */
-  "gpt-4o-mini": { input: 0.00015, output: 0.0006 },
-  "gpt-4o": { input: 0.005, output: 0.015 },
-  "gpt-4-turbo": { input: 0.01, output: 0.03 },
-  "gpt-4": { input: 0.03, output: 0.06 },
-  "gpt-4-32k": { input: 0.06, output: 0.12 },
+export const fetcher = async (url: string) => {
+  const response = await fetch(url);
 
-  /* ---------------- Anthropic ----------------- */
-  "claude-3-haiku": { input: 0.00025, output: 0.00125 },
-  "claude-3-sonnet": { input: 0.003, output: 0.015 },
-  "claude-3-opus": { input: 0.015, output: 0.075 },
+  if (!response.ok) {
+    const { code, cause } = await response.json();
+    throw new ChatSDKError(code as ErrorCode, cause);
+  }
 
-  /* --------------- Reasoning ----------------- */
-  "openai:o1-mini": { input: 0.003, output: 0.012, reasoning: 0.015 },
-  "openai:o1-preview": { input: 0.015, output: 0.06, reasoning: 0.06 },
-
-  /* -------------- Google Gemini -------------- */
-  "gemini-1.5-flash": { input: 0.000075, output: 0.0003 },
-  "gemini-1.5-pro": { input: 0.00125, output: 0.005 },
-  "gemini-2.5-pro": { input: 0.00125, output: 0.005 },
-  "gemini-2.5-flash": { input: 0.00125, output: 0.005 },
-  "nvidia/nemotron-nano-9b-v2:free": { input: 0.000075, output: 0.020 },
+  return response.json();
 };
 
-export const getPricing = (modelId?: string) =>
-  MODEL_PRICING[modelId ?? ""] ?? {
-    input: 0.03,
-    output: 0.06,
-    reasoning: 0.12,
-  };
+export async function fetchWithErrorHandlers(
+  input: RequestInfo | URL,
+  init?: RequestInit,
+) {
+  try {
+    const response = await fetch(input, init);
+
+    if (!response.ok) {
+      const { code, cause } = await response.json();
+      throw new ChatSDKError(code as ErrorCode, cause);
+    }
+
+    return response;
+  } catch (error: unknown) {
+    if (typeof navigator !== 'undefined' && !navigator.onLine) {
+      throw new ChatSDKError('offline:chat');
+    }
+
+    throw error;
+  }
+}
+
+export function getLocalStorage(key: string) {
+  if (typeof window !== 'undefined') {
+    return JSON.parse(localStorage.getItem(key) || '[]');
+  }
+  return [];
+}
+
+export function generateUUID(): string {
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+    const r = (Math.random() * 16) | 0;
+    const v = c === 'x' ? r : (r & 0x3) | 0x8;
+    return v.toString(16);
+  });
+}
+
+type ResponseMessageWithoutId = CoreToolMessage | CoreAssistantMessage;
+type ResponseMessage = ResponseMessageWithoutId & { id: string };
+
+export function getMostRecentUserMessage(messages: UIMessage[]) {
+  const userMessages = messages.filter((message) => message.role === 'user');
+  return userMessages.at(-1);
+}
+
+export function getDocumentTimestampByIndex(
+  documents: Document[],
+  index: number,
+) {
+  if (!documents) { return new Date(); }
+  if (index > documents.length) { return new Date(); }
+
+  return documents[index].createdAt;
+}
+
+export function getTrailingMessageId({
+  messages,
+}: {
+  messages: ResponseMessage[];
+}): string | null {
+  const trailingMessage = messages.at(-1);
+
+  if (!trailingMessage) { return null; }
+
+  return trailingMessage.id;
+}
+
+export function sanitizeText(text: string) {
+  return text.replace('<has_function_call>', '');
+}
+
+export function convertToUIMessages(messages: DBMessage[]): ChatMessage[] {
+  return messages.map((message) => ({
+    id: message.id,
+    role: message.role as 'user' | 'assistant' | 'system',
+    parts: message.parts as UIMessagePart<CustomUIDataTypes, ChatTools>[],
+    metadata: {
+      createdAt: formatISO(message.createdAt),
+    },
+  }));
+}
+
+export function getTextFromMessage(message: ChatMessage | UIMessage): string {
+  return message.parts
+    .filter((part) => part.type === 'text')
+    .map((part) => (part as { type: 'text'; text: string}).text)
+    .join('');
+}

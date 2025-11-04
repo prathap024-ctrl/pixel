@@ -1,373 +1,417 @@
-// components/Composer.tsx
-import React, { memo, useRef, useState, useCallback, useEffect } from "react";
-import { IconPlus, IconX } from "@tabler/icons-react";
-import { ArrowUpIcon } from "lucide-react";
-import { useDebouncedCallback } from "use-debounce";
+"use client";
 
+import type { UseChatHelpers } from "@ai-sdk/react";
+import type { UIMessage } from "ai";
+import equal from "fast-deep-equal";
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import {
-  InputGroup,
-  InputGroupAddon,
-  InputGroupButton,
-  InputGroupText,
-  InputGroupTextarea,
-} from "@/components/ui/input-group";
-import { Separator } from "@/components/ui/separator";
-import { Input } from "./ui/input";
-import Image from "next/image";
-import { AnimatePresence, motion } from "framer-motion";
-import { UsageChat } from "./contextUsage";
+  type ChangeEvent,
+  type Dispatch,
+  memo,
+  type SetStateAction,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
+import { toast } from "sonner";
+import { useLocalStorage, useWindowSize } from "usehooks-ts";
+import type { Attachment, ChatMessage } from "@/lib/types";
+import type { AppUsage } from "@/lib/usage";
+import { cn } from "@/lib/utils";
+import { Textarea } from "@/components/ui/textarea";
+import { StopIcon } from "./icons";
+import { PreviewAttachment } from "./preview-attachment";
+import { Button } from "./ui/button";
+import { Plus, Send } from "lucide-react";
+import { VisibilityType } from "./visibility-selector";
+import { SuggestedActions } from "./suggested-actions";
 
-interface FileData {
-  file: File;
-  previewUrl?: string;
-}
-
-interface ComposerProps extends React.ComponentProps<"div"> {
-  input: string;
-  setInput: (value: string) => void;
-  model: string;
-  setModel: (value: string) => void;
-  handleSubmit: (e?: React.FormEvent) => void;
-  isLoading: boolean;
-  id?: string;
-  maxFileSize?: number;
-  allowedFileTypes?: string[];
-}
-
-const Composer: React.FC<ComposerProps> = ({
-  id,
+function PureMultimodalInput({
+  chatId,
   input,
   setInput,
-  model,
-  setModel,
-  handleSubmit: onSubmit,
-  isLoading,
-  maxFileSize = 10 * 1024 * 1024,
-  allowedFileTypes = ["image/", "text/", "application/pdf"],
-  ...props
-}) => {
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const [selectedFiles, setSelectedFiles] = useState<FileData[]>([]);
+  status,
+  stop,
+  attachments,
+  setAttachments,
+  messages,
+  selectedVisibilityType,
+  setMessages,
+  sendMessage,
+  className,
+}: {
+  chatId: string;
+  input: string;
+  setInput: Dispatch<SetStateAction<string>>;
+  status: UseChatHelpers<ChatMessage>["status"];
+  stop: () => void;
+  attachments: Attachment[];
+  setAttachments: Dispatch<SetStateAction<Attachment[]>>;
+  messages: UIMessage[];
+  setMessages: UseChatHelpers<ChatMessage>["setMessages"];
+  sendMessage: UseChatHelpers<ChatMessage>["sendMessage"];
+  className?: string;
+  usage?: AppUsage;
+  selectedVisibilityType: VisibilityType;
+}) {
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const { width } = useWindowSize();
 
-  // Clean up object URLs on unmount or when files change
+  const adjustHeight = useCallback(() => {
+    if (textareaRef.current) {
+      textareaRef.current.style.height = "44px";
+    }
+  }, []);
+
   useEffect(() => {
-    return () => {
-      selectedFiles.forEach((fileData) => {
-        if (fileData.previewUrl) {
-          URL.revokeObjectURL(fileData.previewUrl);
-        }
-      });
-    };
-  }, [selectedFiles]);
+    if (textareaRef.current) {
+      adjustHeight();
+    }
+  }, [adjustHeight]);
 
-  const handleClick = useCallback(() => {
-    fileInputRef.current?.click();
+  const resetHeight = useCallback(() => {
+    if (textareaRef.current) {
+      textareaRef.current.style.height = "44px";
+    }
   }, []);
 
-  const validateFile = useCallback(
-    (file: File): { isValid: boolean; error?: string } => {
-      if (file.size > maxFileSize) {
-        return {
-          isValid: false,
-          error: `File ${file.name} exceeds ${Math.round(
-            maxFileSize / (1024 * 1024)
-          )}MB limit`,
-        };
-      }
-
-      if (!allowedFileTypes.some((type) => file.type.startsWith(type))) {
-        return {
-          isValid: false,
-          error: `File type ${file.type || "unknown"} is not supported`,
-        };
-      }
-
-      return { isValid: true };
-    },
-    [maxFileSize, allowedFileTypes]
+  const [localStorageInput, setLocalStorageInput] = useLocalStorage(
+    "input",
+    ""
   );
 
-  const handleChange = useCallback(
-    (e: React.ChangeEvent<HTMLInputElement>) => {
-      const files = e.target.files;
-      if (!files || files.length === 0) return;
+  useEffect(() => {
+    if (textareaRef.current) {
+      const domValue = textareaRef.current.value;
+      // Prefer DOM value over localStorage to handle hydration
+      const finalValue = domValue || localStorageInput || "";
+      setInput(finalValue);
+      adjustHeight();
+    }
+    // Only run once after hydration
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [adjustHeight, localStorageInput, setInput]);
 
-      const validFiles: FileData[] = [];
-      const errors: string[] = [];
+  useEffect(() => {
+    setLocalStorageInput(input);
+  }, [input, setLocalStorageInput]);
 
-      Array.from(files).forEach((file) => {
-        const validation = validateFile(file);
-        if (validation.isValid) {
-          validFiles.push({
-            file,
-            previewUrl: file.type.startsWith("image/")
-              ? URL.createObjectURL(file)
-              : undefined,
-          });
-        } else if (validation.error) {
-          errors.push(validation.error);
-        }
+  const handleInput = (event: React.ChangeEvent<HTMLTextAreaElement>) => {
+    setInput(event.target.value);
+  };
+
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [uploadQueue, setUploadQueue] = useState<string[]>([]);
+
+  const submitForm = useCallback(() => {
+    window.history.pushState({}, "", `/chat/${chatId}`);
+
+    sendMessage({
+      role: "user",
+      parts: [
+        ...attachments.map((attachment) => ({
+          type: "file" as const,
+          url: attachment.url,
+          name: attachment.name,
+          mediaType: attachment.contentType,
+        })),
+        {
+          type: "text",
+          text: input,
+        },
+      ],
+    });
+
+    setAttachments([]);
+    setLocalStorageInput("");
+    resetHeight();
+    setInput("");
+
+    if (width && width > 768) {
+      textareaRef.current?.focus();
+    }
+  }, [
+    input,
+    setInput,
+    attachments,
+    sendMessage,
+    setAttachments,
+    setLocalStorageInput,
+    width,
+    chatId,
+    resetHeight,
+  ]);
+
+  const uploadFile = useCallback(async (file: File) => {
+    const formData = new FormData();
+    formData.append("file", file);
+
+    try {
+      const response = await fetch("/api/files/upload", {
+        method: "POST",
+        body: formData,
       });
 
-      if (errors.length > 0) {
-        console.warn("File validation errors:", errors);
-      }
+      if (response.ok) {
+        const data = await response.json();
+        const { url, pathname, contentType } = data;
 
-      if (validFiles.length > 0) {
-        setSelectedFiles((prev) => {
-          const updatedFiles = [...prev, ...validFiles];
-          return updatedFiles.slice(0, 20);
+        return {
+          url,
+          name: pathname,
+          contentType,
+        };
+      }
+      const { error } = await response.json();
+      toast.error(error, {
+        duration: 5000,
+        description: "Failed to upload file, please try again!",
+        closeButton: true,
+      });
+    } catch (_error) {
+      toast.error("Failed to upload file, please try again!");
+    }
+  }, []);
+
+  const handleFileChange = useCallback(
+    async (event: ChangeEvent<HTMLInputElement>) => {
+      const files = Array.from(event.target.files || []);
+
+      setUploadQueue(files.map((file) => file.name));
+
+      try {
+        const uploadPromises = files.map((file) => uploadFile(file));
+        const uploadedAttachments = await Promise.all(uploadPromises);
+        const successfullyUploadedAttachments = uploadedAttachments.filter(
+          (attachment) => attachment !== undefined
+        );
+
+        setAttachments((currentAttachments) => [
+          ...currentAttachments,
+          ...successfullyUploadedAttachments,
+        ]);
+      } catch (error) {
+        console.error("Error uploading files!", error);
+      } finally {
+        setUploadQueue([]);
+      }
+    },
+    [setAttachments, uploadFile]
+  );
+
+  const handlePaste = useCallback(
+    async (event: ClipboardEvent) => {
+      const items = event.clipboardData?.items;
+      if (!items) return;
+
+      const imageItems = Array.from(items).filter((item) =>
+        item.type.startsWith("image/")
+      );
+
+      if (imageItems.length === 0) return;
+
+      // Prevent default paste behavior for images
+      event.preventDefault();
+
+      setUploadQueue((prev) => [...prev, "Pasted image"]);
+
+      try {
+        const uploadPromises = imageItems.map(async (item) => {
+          const file = item.getAsFile();
+          if (!file) return;
+          return uploadFile(file);
         });
-      }
 
-      if (fileInputRef.current) {
-        fileInputRef.current.value = "";
+        const uploadedAttachments = await Promise.all(uploadPromises);
+        const successfullyUploadedAttachments = uploadedAttachments.filter(
+          (attachment) =>
+            attachment !== undefined &&
+            attachment.url !== undefined &&
+            attachment.contentType !== undefined
+        );
+
+        setAttachments((curr) => [
+          ...curr,
+          ...(successfullyUploadedAttachments as Attachment[]),
+        ]);
+      } catch (error) {
+        console.error("Error uploading pasted images:", error);
+        toast.error("Failed to upload pasted image(s)");
+      } finally {
+        setUploadQueue([]);
       }
     },
-    [validateFile]
+    [setAttachments]
   );
 
-  const handleRemove = useCallback((index: number) => {
-    setSelectedFiles((prev) => {
-      const fileToRemove = prev[index];
-      if (fileToRemove.previewUrl) {
-        URL.revokeObjectURL(fileToRemove.previewUrl);
-      }
-      return prev.filter((_, idx) => idx !== index);
-    });
-  }, []);
+  // Add paste event listener to textarea
+  useEffect(() => {
+    const textarea = textareaRef.current;
+    if (!textarea) return;
 
-  const clearAllFiles = useCallback(() => {
-    setSelectedFiles((prev) => {
-      prev.forEach((fileData) => {
-        if (fileData.previewUrl) {
-          URL.revokeObjectURL(fileData.previewUrl);
-        }
-      });
-      return [];
-    });
-  }, []);
+    textarea.addEventListener("paste", handlePaste);
+    return () => textarea.removeEventListener("paste", handlePaste);
+  }, [handlePaste]);
 
   const handleSubmit = useCallback(
-    async (e?: React.FormEvent) => {
-      e?.preventDefault();
-      if (isLoading) return;
-
-      const text = input.trim();
-      if (!text && selectedFiles.length === 0) return;
-
-      // Call the submit handler from useChat
-      onSubmit(e);
-
-      // Reset files after submit
-      clearAllFiles();
+    (event: React.FormEvent<HTMLFormElement>) => {
+      event?.preventDefault();
+      if (status !== "ready") {
+        toast.error("Please wait for the model to finish its response!");
+      } else {
+        submitForm();
+      }
     },
-    [input, selectedFiles, isLoading, onSubmit, clearAllFiles]
-  );
-
-  const debouncedSetInput = useDebouncedCallback(
-    (value: string) => setInput(value),
-    50
+    [submitForm, status]
   );
 
   const handleKeyDown = useCallback(
-    (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-      if (e.key === "Enter" && !e.shiftKey) {
-        e.preventDefault();
-        handleSubmit();
+    (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
+      if (event.key === "Enter" && !event.shiftKey) {
+        event.preventDefault();
+        submitForm();
       }
     },
-    [handleSubmit]
+    [submitForm]
   );
-
-  const isSendDisabled =
-    (!input.trim() && selectedFiles.length === 0) || isLoading;
-
-  const modelName = model.length > 10 ? model.slice(0, 10) + "..." : model;
 
   return (
-    <div {...props}>
-      <AnimatePresence>
-        <div className="grid w-full max-w-2xl mx-auto">
-          <InputGroup>
-            <motion.div
-              className="w-full"
-              initial={{ opacity: 0, y: 2 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.5, delay: 0.2 }}
+    <div className={cn("relative flex w-full flex-col gap-4", className)}>
+      {messages.length === 0 &&
+        attachments.length === 0 &&
+        uploadQueue.length === 0 && (
+          <SuggestedActions
+            chatId={chatId}
+            selectedVisibilityType={selectedVisibilityType}
+            sendMessage={sendMessage}
+          />
+        )}
+      <input
+        className="-top-4 -left-4 pointer-events-none fixed size-0.5 opacity-0"
+        multiple
+        onChange={handleFileChange}
+        ref={fileInputRef}
+        tabIndex={-1}
+        type="file"
+      />
+
+      <form
+        className="rounded-2xl p-2 border border-border bg-background shadow-xs transition-all duration-200 focus-within:border-border hover:border-muted-foreground/50"
+        onSubmit={handleSubmit}
+      >
+        <div>
+          {(attachments.length > 0 || uploadQueue.length > 0) && (
+            <div
+              className="grid grid-cols-10 gap-2 overflow-x-scroll"
+              data-testid="attachments-preview"
             >
-              {selectedFiles.length > 0 && (
-                <motion.div
-                  className="grid grid-cols-4 md:grid-cols-8 gap-2 p-2 mt-2"
-                  initial={{ opacity: 0, y: 2 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ duration: 0.5, delay: 0.2 }}
-                >
-                  {selectedFiles.map((fileData, idx) => (
-                    <div
-                      key={`${fileData.file.name}-${idx}`}
-                      className="relative flex flex-col items-center group"
-                    >
-                      <button
-                        onClick={() => handleRemove(idx)}
-                        className="absolute -right-1 -top-1 bg-black rounded-full shadow hover:bg-red-400 transition-colors duration-200 z-10"
-                        aria-label={`Remove ${fileData.file.name}`}
-                        type="button"
-                      >
-                        <IconX size={16} />
-                      </button>
-
-                      {fileData.previewUrl ? (
-                        <div className="relative">
-                          <Image
-                            width={64}
-                            height={64}
-                            src={fileData.previewUrl}
-                            alt={`Preview of ${fileData.file.name}`}
-                            className="w-16 h-16 object-cover rounded border mb-2"
-                            onError={(e) => {
-                              const target = e.target as HTMLImageElement;
-                              target.style.display = "none";
-                            }}
-                          />
-                        </div>
-                      ) : (
-                        <div
-                          className="w-16 h-16 flex items-center justify-center bg-gray-100 rounded border mb-2 text-sm text-center wrap-break-word p-1"
-                          title={fileData.file.name}
-                        >
-                          {fileData.file.name.split(".").pop()?.toUpperCase() ||
-                            "FILE"}
-                        </div>
-                      )}
-                    </div>
-                  ))}
-                </motion.div>
-              )}
-            </motion.div>
-
-            <InputGroupTextarea
-              placeholder="Ask, Search or Chat..."
-              value={input}
-              onChange={(e) => debouncedSetInput(e.target.value)}
-              onKeyDown={handleKeyDown}
-              disabled={isLoading}
-              aria-label="Message input"
-            />
-
-            <InputGroupAddon align="block-end">
-              <Input
-                id="file"
-                type="file"
-                ref={fileInputRef}
-                onChange={handleChange}
-                className="hidden"
-                multiple
-                accept={allowedFileTypes.join(",")}
-                aria-label="File upload"
-              />
-
-              <InputGroupButton
-                variant="outline"
-                className="rounded-full"
-                size="icon-xs"
-                onClick={handleClick}
-                disabled={isLoading}
-                aria-label="Add files"
-                type="button"
-              >
-                <IconPlus />
-              </InputGroupButton>
-
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <InputGroupButton
-                    variant="ghost"
-                    disabled={isLoading}
-                    aria-label="Select model"
-                  >
-                    {modelName}
-                  </InputGroupButton>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent
-                  side="top"
-                  align="start"
-                  className="[--radius:0.95rem]"
-                >
-                  <DropdownMenuItem
-                    onClick={() => setModel("gpt-4o-mini")}
-                    aria-selected={model === "gpt-4o-mini"}
-                  >
-                    gpt-4o-mini
-                  </DropdownMenuItem>
-                  <DropdownMenuItem
-                    onClick={() => setModel("google/gemini-2.5-flash")}
-                    aria-selected={model === "gemini-2.5-flash"}
-                  >
-                    google/gemini-2.5-flash
-                  </DropdownMenuItem>
-                  <DropdownMenuItem
-                    onClick={() => setModel("nvidia/nemotron-nano-9b-v2:free")}
-                    aria-selected={model === "nvidia/nemotron-nano-9b-v2:free"}
-                  >
-                    nvidia/nemotron-nano-9b-v2:free
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
-
-              <InputGroupText className="ml-auto">
-                <UsageChat
-                  maxTokens={100000}
-                  modelId={model}
-                  warningThreshold={75}
-                  criticalThreshold={90}
-                  onTokensExhausted={() => {
-                    // Show upgrade modal, disable chat, etc.
-                    console.log("Tokens exhausted!");
+              {attachments.map((attachment) => (
+                <PreviewAttachment
+                  attachment={attachment}
+                  key={attachment.url}
+                  onRemove={() => {
+                    setAttachments((currentAttachments) =>
+                      currentAttachments.filter((a) => a.url !== attachment.url)
+                    );
+                    if (fileInputRef.current) {
+                      fileInputRef.current.value = "";
+                    }
                   }}
                 />
-              </InputGroupText>
+              ))}
 
-              <Separator orientation="vertical" className="h-4!" />
-
-              <InputGroupButton
-                variant="default"
-                className="rounded-full"
-                size="icon-xs"
-                onClick={handleSubmit}
-                disabled={isSendDisabled}
-                aria-label={isLoading ? "Sending..." : "Send message"}
-                type="button"
-              >
-                {isLoading ? (
-                  <motion.div
-                    animate={{ rotate: 360 }}
-                    transition={{
-                      duration: 1,
-                      repeat: Infinity,
-                      ease: "linear",
-                    }}
-                    className="w-4 h-4 border-2 border-white border-t-transparent rounded-full"
-                  />
-                ) : (
-                  <ArrowUpIcon />
-                )}
-                <span className="sr-only">
-                  {isLoading ? "Sending..." : "Send"}
-                </span>
-              </InputGroupButton>
-            </InputGroupAddon>
-          </InputGroup>
+              {uploadQueue.map((filename) => (
+                <PreviewAttachment
+                  attachment={{
+                    url: "",
+                    name: filename,
+                    contentType: "",
+                  }}
+                  isUploading={true}
+                  key={filename}
+                />
+              ))}
+            </div>
+          )}
         </div>
-      </AnimatePresence>
+        <div className={`flex flex-col gap-2`}>
+          <Textarea
+            autoFocus
+            className={`grow resize-none ${input.length > 100 ? "min-h-42" : "min-h-8"} bg-background text-sm shadow-none outline-none ring-0 [-ms-overflow-style:none] [scrollbar-width:none] placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-0 focus-visible:ring-offset-0 [&::-webkit-scrollbar]:hidden`}
+            onChange={handleInput}
+            onKeyDown={handleKeyDown}
+            placeholder="Send a message..."
+            ref={textareaRef}
+            value={input}
+          />{" "}
+          <div className="flex justify-between">
+            <Button
+              className="aspect-square h-8 rounded-lg p-1 transition-colors hover:bg-accent"
+              data-testid="attachments-button"
+              disabled={status !== "ready"}
+              onClick={(event) => {
+                event.preventDefault();
+                fileInputRef.current?.click();
+              }}
+              variant="ghost"
+            >
+              <Plus size={14} style={{ width: 14, height: 14 }} />
+            </Button>
+            {status === "submitted" ? (
+              <StopButton setMessages={setMessages} stop={stop} />
+            ) : (
+              <Button
+                variant={"default"}
+                className="size-8 rounded-full text-primary-foreground transition-colors duration-200 disabled:text-muted-foreground"
+                disabled={!input.trim() || uploadQueue.length > 0}
+                data-testid="send-button"
+              >
+                <Send size={14} />
+              </Button>
+            )}
+          </div>
+        </div>
+      </form>
     </div>
   );
-};
+}
 
-export default memo(Composer);
+export const Composer = memo(PureMultimodalInput, (prevProps, nextProps) => {
+  if (prevProps.input !== nextProps.input) {
+    return false;
+  }
+  if (prevProps.status !== nextProps.status) {
+    return false;
+  }
+  if (prevProps.selectedVisibilityType !== nextProps.selectedVisibilityType) {
+    return false;
+  }
+  if (!equal(prevProps.attachments, nextProps.attachments)) {
+    return false;
+  }
+  return true;
+});
+
+function PureStopButton({
+  stop,
+  setMessages,
+}: {
+  stop: () => void;
+  setMessages: UseChatHelpers<ChatMessage>["setMessages"];
+}) {
+  return (
+    <Button
+      className="size-7 rounded-full bg-foreground p-1 text-background transition-colors duration-200 hover:bg-foreground/90 disabled:bg-muted disabled:text-muted-foreground"
+      data-testid="stop-button"
+      onClick={(event) => {
+        event.preventDefault();
+        stop();
+        setMessages((messages) => messages);
+      }}
+    >
+      <StopIcon size={14} />
+    </Button>
+  );
+}
+
+const StopButton = memo(PureStopButton);

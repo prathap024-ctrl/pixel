@@ -1,173 +1,188 @@
-// components/MainChat.tsx
 "use client";
 
-import Composer from "./composer";
-import { AnimatePresence, motion } from "framer-motion";
-import ConversationScreen from "./ConversationScreen";
-import { useChat } from "@/hooks/useChat";
-import EmptyConversation from "./EmptyConversation";
+import { useChat } from "@ai-sdk/react";
+import { DataUIPart, DefaultChatTransport } from "ai";
+import { useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
-import { UseChatOptions } from "@/types/useChat";
-import { useVirtualizer } from "@tanstack/react-virtual";
-import { useRef } from "react";
+import useSWR, { useSWRConfig } from "swr";
+import { unstable_serialize } from "swr/infinite";
+import { useArtifactSelector } from "@/hooks/use-artifact";
+import { useAutoResume } from "@/hooks/use-auto-resume";
+import { useChatVisibility } from "@/hooks/use-chat-visibility";
+import type { Vote } from "@/app/lib/db/schema";
+import type { Attachment, ChatMessage, CustomUIDataTypes } from "@/lib/types";
+import type { AppUsage } from "@/lib/usage";
+import { fetcher, fetchWithErrorHandlers, generateUUID } from "@/lib/utils";
+import { Artifact } from "./artifact";
+import { useDataStream } from "./data-stream-provider";
+import { Messages } from "./messages";
+import { Composer } from "./Composer";
+import { getChatHistoryPaginationKey } from "./sidebar-history";
+import type { VisibilityType } from "./visibility-selector";
 
-interface MainChatProps {
-  chatId?: string;
-}
+export function Chat({
+  id,
+  initialMessages,
+  initialChatModel,
+  initialVisibilityType,
+  isReadonly,
+  autoResume,
+  initialLastContext,
+}: {
+  id: string;
+  initialMessages: ChatMessage[];
+  initialChatModel: string;
+  initialVisibilityType: VisibilityType;
+  isReadonly: boolean;
+  autoResume: boolean;
+  initialLastContext?: AppUsage;
+}) {
+  const { visibilityType } = useChatVisibility({
+    chatId: id,
+    initialVisibilityType,
+  });
 
-export function MainChat({ chatId }: MainChatProps) {
-  const [model, setModel] = useState("gpt-4o-mini");
-  const chat = useChat<UseChatOptions>({
-    id: chatId,
-    persist: false,
-    api: "/api/chat",
-    model: model,
-    features: {
-      reasoning: true, // Enable chain-of-thought reasoning
-      thinking: true, // Enable thinking process display
-      toolCalling: true, // Enable tool/function calling
-      workflow: true, // Enable workflow steps
-      fileHandling: true, // Enable file uploads
+  const { mutate } = useSWRConfig();
+  const { setDataStream } = useDataStream();
+
+  const [input, setInput] = useState<string>("");
+  const [usage, setUsage] = useState<AppUsage | undefined>(initialLastContext);
+
+  const {
+    messages,
+    setMessages,
+    sendMessage,
+    status,
+    stop,
+    regenerate,
+    resumeStream,
+  } = useChat<ChatMessage>({
+    id,
+    messages: initialMessages,
+    experimental_throttle: 100,
+    generateId: generateUUID,
+    transport: new DefaultChatTransport({
+      api: "/api/chat",
+      fetch: fetchWithErrorHandlers,
+      prepareSendMessagesRequest(request) {
+        return {
+          body: {
+            id: request.id,
+            message: request.messages.at(-1),
+            selectedVisibilityType: visibilityType,
+            ...request.body,
+          },
+        };
+      },
+    }),
+    onData: (dataPart) => {
+      type DataPartType = {
+        type: "data-usage";
+        id?: string | undefined;
+        data: AppUsage;
+      };
+      setDataStream((ds: DataUIPart<CustomUIDataTypes>[] = []) =>
+        ds ? [...ds, dataPart as DataPartType] : []
+      );
+      if (dataPart.type === "data-usage") {
+        if (typeof dataPart.data === "object" && dataPart.data !== null) {
+          setUsage(dataPart.data as AppUsage | undefined);
+        }
+      }
     },
-    onError: (error) => {
-      console.error("Chat error:", error);
-    },
-    onFinish: (message) => {
-      console.log("Chat finished:", message.id);
-    },
-    onToolCall: (tool) => {
-      console.log("Tool called:", tool.toolName);
-    },
-    onWorkflowStep: (step) => {
-      console.log("Workflow step:", step.title, step.status);
+    onFinish: () => {
+      mutate(unstable_serialize(getChatHistoryPaginationKey));
     },
   });
 
-  const parentRef = useRef<HTMLDivElement>(null);
+  const searchParams = useSearchParams();
+  const query = searchParams.get("query");
 
-  // Fix: Better estimate size and proper measurement
-  /* -------------------------------------------------- */
-  /* 1️⃣  stable key for the message that is streaming   */
-  const streamingKeyRef = useRef<string>("");
-  const lastFinishedIdRef = useRef<string>("");
+  const [hasAppendedQuery, setHasAppendedQuery] = useState(false);
+  const [queryState, setQueryState] = useState(query); // Add a new state variable
 
   useEffect(() => {
-    const last = chat.messages.at(-1);
-    if (!last) return;
+    if (queryState && !hasAppendedQuery) {
+      sendMessage({
+        role: "user" as const,
+        parts: [{ type: "text", text: queryState }],
+      });
 
-    // stream just started → remember the id
-    if (chat.isLoading && lastFinishedIdRef.current !== last.id) {
-      streamingKeyRef.current = last.id;
+      setHasAppendedQuery(true);
+      window.history.replaceState({}, "", `/chat/${id}`);
     }
-    // stream just finished → remember we finished
-    if (!chat.isLoading) {
-      lastFinishedIdRef.current = last.id;
-    }
-  }, [chat.messages, chat.isLoading]);
-  /* -------------------------------------------------- */
+  }, [queryState, sendMessage, hasAppendedQuery, id]);
 
-  const virtual = useVirtualizer({
-    count: chat.messages.length,
-    getScrollElement: () => parentRef.current,
-    estimateSize: () => 40,
-    overscan: 5,
+  useEffect(() => {
+    setQueryState(query);
+  }, [query]);
+
+  const { data: votes } = useSWR<Vote[]>(
+    messages.length >= 2 ? `/api/vote?chatId=${id}` : null,
+    fetcher
+  );
+
+  const [attachments, setAttachments] = useState<Attachment[]>([]);
+  const isArtifactVisible = useArtifactSelector((state) => state.isVisible);
+
+  useAutoResume({
+    autoResume,
+    initialMessages,
+    resumeStream,
+    setMessages,
   });
 
-  /* ---------- auto-scroll ---------- */
-  useEffect(() => {
-    if (!chat.isLoading) return;
-    const lastIndex = chat.messages.length - 1;
-    virtual.scrollToIndex(lastIndex, { align: "end", behavior: "auto" });
-  }, [chat.messages.length, chat.isLoading, virtual]);
   return (
-    <AnimatePresence>
-      <div className={`flex flex-col h-[97vh] top-2 w-full`}>
-        {/* Messages area - only this part scrolls */}
-        <div
-          ref={parentRef}
-          className="flex-1 overflow-y-auto wrap-break-word whitespace-pre-wrap w-full"
-        >
-          {chat.messages.length === 0 ? (
-            <div className="h-full flex items-center justify-center">
-              <EmptyConversation />
-            </div>
-          ) : (
-            <div
-              style={{
-                height: `${virtual.getTotalSize()}px`,
-                width: "100%",
-                position: "relative",
-              }}
-            >
-              {virtual.getVirtualItems().map((virtualItem) => {
-                const msg = chat.messages[virtualItem.index];
+    <>
+      <div className="overscroll-behavior-contain flex h-[98vh] min-w-0 touch-pan-y flex-col">
+        <Messages
+          chatId={id}
+          isArtifactVisible={isArtifactVisible}
+          isReadonly={isReadonly}
+          messages={messages}
+          regenerate={regenerate}
+          selectedModelId={initialChatModel}
+          setMessages={setMessages}
+          status={status}
+          votes={votes}
+        />
 
-                const stablePart =
-                  chat.isLoading &&
-                  virtualItem.index === chat.messages.length - 1
-                    ? streamingKeyRef.current
-                    : msg.id;
-
-                /* 2️⃣  unique part: always different for every index */
-                const uniquePart = virtualItem.index;
-
-                /* 3️⃣  composite key – unique per index, stable for stream */
-                const rowKey = `${stablePart}-${uniquePart}`;
-
-                return (
-                  <div
-                    key={rowKey}
-                    data-index={virtualItem.index}
-                    ref={virtual.measureElement}
-                    style={{
-                      position: "absolute",
-                      top: 0,
-                      left: 0,
-                      width: "100%",
-                      transform: `translateY(${virtualItem.start}px)`,
-                    }}
-                  >
-                    <div
-                      className={
-                        virtualItem.index === 0
-                          ? "pt-4"
-                          : virtualItem.index === chat.messages.length - 1
-                          ? "pb-42"
-                          : ""
-                      }
-                    >
-                      <ConversationScreen
-                        messages={[chat.messages[virtualItem.index]]}
-                        regenerate={chat.regenerate}
-                        isLoading={
-                          chat.isLoading &&
-                          virtualItem.index === chat.messages.length - 1
-                        }
-                      />
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
+        <div className="sticky bottom-0 z-1 mx-auto flex w-full max-w-2xl gap-2 border-t-0 px-2 md:px-4">
+          {!isReadonly && (
+            <Composer
+              attachments={attachments}
+              chatId={id}
+              input={input}
+              messages={messages}
+              sendMessage={sendMessage}
+              setAttachments={setAttachments}
+              setInput={setInput}
+              selectedVisibilityType={visibilityType}
+              setMessages={setMessages}
+              status={status}
+              stop={stop}
+              usage={usage}
+            />
           )}
         </div>
-        <motion.div
-          initial={{ opacity: 0, y: 2 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.5, delay: 0.4 }}
-          className="absolute bottom-0 z-50 w-full"
-        >
-          <Composer
-            id={chatId!}
-            input={chat.input}
-            setInput={chat.setInput}
-            handleSubmit={chat.handleSubmit}
-            isLoading={chat.isLoading}
-            model={model}
-            setModel={setModel}
-          />
-        </motion.div>
       </div>
-    </AnimatePresence>
+
+      <Artifact
+        attachments={attachments}
+        chatId={id}
+        input={input}
+        isReadonly={isReadonly}
+        messages={messages}
+        regenerate={regenerate}
+        selectedVisibilityType={visibilityType}
+        sendMessage={sendMessage}
+        setAttachments={setAttachments}
+        setInput={setInput}
+        setMessages={setMessages}
+        status={status}
+        stop={stop}
+        votes={votes}
+      />
+    </>
   );
 }

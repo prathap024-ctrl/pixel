@@ -20,9 +20,11 @@ import { Spinner } from "./ui/spinner";
 import { authClient } from "@/lib/auth-client";
 import { ThemedLogo } from "@/lib/assets";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 
 function SignupForm({ className, ...props }: React.ComponentProps<"form">) {
   const [isLoading, setIsLoading] = React.useState(false);
+  const router = useRouter();
 
   const {
     register,
@@ -39,7 +41,6 @@ function SignupForm({ className, ...props }: React.ComponentProps<"form">) {
         email: data.email,
         password: data.password,
         ...(data.phone ? { phone: data.phone } : {}),
-        callbackURL: "/login",
       },
       {
         onRequest: () => {
@@ -57,6 +58,7 @@ function SignupForm({ className, ...props }: React.ComponentProps<"form">) {
             duration: 5000,
             closeButton: true,
           });
+          router.push("/login");
         },
         onError: () => {
           setIsLoading(false);
