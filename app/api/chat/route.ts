@@ -202,14 +202,14 @@ export async function POST(request: Request) {
             try {
               const providers = await getTokenlensCatalog();
 
-              finalMergedUsage = usage as AppUsage;
+              finalMergedUsage = usage;
               dataStream.write({
                 type: "data-usage",
                 data: finalMergedUsage,
               });
 
               if (!providers) {
-                finalMergedUsage = usage as AppUsage;
+                finalMergedUsage = usage;
                 dataStream.write({
                   type: "data-usage",
                   data: finalMergedUsage,
@@ -217,8 +217,12 @@ export async function POST(request: Request) {
                 return;
               }
 
-              const summary = getUsage({ usage });
-              finalMergedUsage = { ...usage, ...summary } as AppUsage;
+              const summary = getUsage({ modelId: "", usage, providers });
+              finalMergedUsage = {
+                ...usage,
+                ...summary,
+                modelId: "",
+              } as AppUsage;
               dataStream.write({ type: "data-usage", data: finalMergedUsage });
             } catch (err) {
               console.warn("TokenLens enrichment failed", err);
