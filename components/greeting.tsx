@@ -6,7 +6,7 @@ export const Greeting = memo(function Greeting() {
   const { data: session } = authClient.useSession();
   return (
     <div
-      className="mx-auto mt-4 flex size-full h-[50vh] max-w-3xl flex-col justify-center px-2 pt-16 md:px-8"
+      className="mx-auto mt-4 flex size-full max-w-3xl flex-col justify-center px-2 pt-16 md:px-8"
       key="overview"
     >
       <motion.div
