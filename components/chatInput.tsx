@@ -18,13 +18,22 @@ import { useLocalStorage, useWindowSize } from "usehooks-ts";
 import type { Attachment, ChatMessage } from "@/lib/types";
 import type { AppUsage } from "@/lib/usage";
 import { cn } from "@/lib/utils";
-import { Textarea } from "@/components/ui/textarea";
 import { StopIcon } from "./icons";
 import { PreviewAttachment } from "./preview-attachment";
 import { Button } from "./ui/button";
 import { Plus, Send } from "lucide-react";
 import { VisibilityType } from "./visibility-selector";
 import { SuggestedActions } from "./suggested-actions";
+import {
+  InputGroup,
+  InputGroupAddon,
+  InputGroupButton,
+  InputGroupInput,
+  InputGroupText,
+  InputGroupTextarea,
+} from "./ui/input-group";
+import { Separator } from "@radix-ui/react-separator";
+import { useDebounce } from "use-debounce";
 
 function PureMultimodalInput({
   chatId,
@@ -54,7 +63,7 @@ function PureMultimodalInput({
   usage?: AppUsage;
   selectedVisibilityType: VisibilityType;
 }) {
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement | HTMLInputElement>(null);
   const { width } = useWindowSize();
 
   const adjustHeight = useCallback(() => {
@@ -88,39 +97,43 @@ function PureMultimodalInput({
       setInput(finalValue);
       adjustHeight();
     }
-    // Only run once after hydration
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+
   }, [adjustHeight, localStorageInput, setInput]);
 
   useEffect(() => {
     setLocalStorageInput(input);
   }, [input, setLocalStorageInput]);
 
-  const handleInput = (event: React.ChangeEvent<HTMLTextAreaElement>) => {
+  const handleInput = (
+    event: React.ChangeEvent<HTMLTextAreaElement | HTMLInputElement>
+  ) => {
     setInput(event.target.value);
   };
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [uploadQueue, setUploadQueue] = useState<string[]>([]);
+  const [debouncedValue] = useDebounce(input, 500);
 
   const submitForm = useCallback(() => {
     window.history.pushState({}, "", `/chat/${chatId}`);
 
-    sendMessage({
-      role: "user",
-      parts: [
-        ...attachments.map((attachment) => ({
-          type: "file" as const,
-          url: attachment.url,
-          name: attachment.name,
-          mediaType: attachment.contentType,
-        })),
-        {
-          type: "text",
-          text: input,
-        },
-      ],
-    });
+    if (debouncedValue.trim()) {
+      sendMessage({
+        role: "user",
+        parts: [
+          ...attachments.map((attachment) => ({
+            type: "file" as const,
+            url: attachment.url,
+            name: attachment.name,
+            mediaType: attachment.contentType,
+          })),
+          {
+            type: "text",
+            text: debouncedValue,
+          },
+        ],
+      });
+    }
 
     setAttachments([]);
     setLocalStorageInput("");
@@ -131,7 +144,6 @@ function PureMultimodalInput({
       textareaRef.current?.focus();
     }
   }, [
-    input,
     setInput,
     attachments,
     sendMessage,
@@ -140,6 +152,7 @@ function PureMultimodalInput({
     width,
     chatId,
     resetHeight,
+    debouncedValue,
   ]);
 
   const uploadFile = useCallback(async (file: File) => {
@@ -200,8 +213,9 @@ function PureMultimodalInput({
   );
 
   const handlePaste = useCallback(
-    async (event: ClipboardEvent) => {
-      const items = event.clipboardData?.items;
+    async (event: Event) => {
+      const ClipboardEvent = event as ClipboardEvent;
+      const items = ClipboardEvent.clipboardData?.items;
       if (!items) return;
 
       const imageItems = Array.from(items).filter((item) =>
@@ -253,20 +267,8 @@ function PureMultimodalInput({
     return () => textarea.removeEventListener("paste", handlePaste);
   }, [handlePaste]);
 
-  const handleSubmit = useCallback(
-    (event: React.FormEvent<HTMLFormElement>) => {
-      event?.preventDefault();
-      if (status !== "ready") {
-        toast.error("Please wait for the model to finish its response!");
-      } else {
-        submitForm();
-      }
-    },
-    [submitForm, status]
-  );
-
   const handleKeyDown = useCallback(
-    (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    (event: React.KeyboardEvent<HTMLTextAreaElement | HTMLInputElement>) => {
       if (event.key === "Enter" && !event.shiftKey) {
         event.preventDefault();
         submitForm();
@@ -295,10 +297,7 @@ function PureMultimodalInput({
         type="file"
       />
 
-      <form
-        className="rounded-t-2xl md:rounded-2xl p-2 border-t border-r border-l md:border border-border bg-background shadow-xs transition-all duration-200 focus-within:border-border hover:border-muted-foreground/50"
-        onSubmit={handleSubmit}
-      >
+      <div>
         <div>
           {(attachments.length > 0 || uploadQueue.length > 0) && (
             <div
@@ -334,44 +333,72 @@ function PureMultimodalInput({
             </div>
           )}
         </div>
-        <div className={`flex flex-col gap-2`}>
-          <Textarea
-            autoFocus
-            className={`grow resize-none ${input.length > 100 ? "min-h-42" : "min-h-8"} bg-background text-sm shadow-none outline-none ring-0 [-ms-overflow-style:none] [scrollbar-width:none] placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-0 focus-visible:ring-offset-0 [&::-webkit-scrollbar]:hidden`}
-            onChange={handleInput}
-            onKeyDown={handleKeyDown}
-            placeholder="Send a message..."
-            ref={textareaRef}
-            value={input}
-          />{" "}
-          <div className="flex justify-between">
-            <Button
-              className="aspect-square h-8 rounded-lg p-1 transition-colors hover:bg-accent"
-              data-testid="attachments-button"
-              disabled={status !== "ready"}
-              onClick={(event) => {
-                event.preventDefault();
-                fileInputRef.current?.click();
-              }}
-              variant="ghost"
-            >
-              <Plus size={14} style={{ width: 14, height: 14 }} />
-            </Button>
-            {status === "submitted" ? (
-              <StopButton setMessages={setMessages} stop={stop} />
+
+        <div>
+          <InputGroup
+            onSubmit={(event: React.FormEvent<HTMLDivElement>) => {
+              event?.preventDefault();
+              if (status !== "ready") {
+                toast.error(
+                  "Please wait for the model to finish its response!"
+                );
+              } else {
+                submitForm();
+              }
+            }}
+          >
+            {input.length > 150 ? (
+              <InputGroupTextarea
+                placeholder="Ask, Search or Chat..."
+                onChange={handleInput}
+                rows={2}
+                className="resize-none max-h-[250px] overflow-y-scroll"
+                onKeyDown={handleKeyDown}
+                ref={textareaRef as React.RefObject<HTMLTextAreaElement>}
+                value={input}
+              />
             ) : (
-              <Button
-                variant={"default"}
-                className="size-8 rounded-full text-primary-foreground transition-colors duration-200 disabled:text-muted-foreground"
-                disabled={!input.trim() || uploadQueue.length > 0}
-                data-testid="send-button"
-              >
-                <Send size={14} />
-              </Button>
+              <InputGroupInput
+                placeholder="Ask, Search or Chat..."
+                onChange={handleInput}
+                onKeyDown={handleKeyDown}
+                ref={textareaRef as React.RefObject<HTMLInputElement>}
+                value={input}
+              />
             )}
-          </div>
+            <InputGroupAddon align="block-end">
+              <InputGroupButton
+                variant="outline"
+                className="rounded-full"
+                size="icon-xs"
+                data-testid="attachments-button"
+                disabled={status !== "ready"}
+                onClick={(event) => {
+                  event.preventDefault();
+                  fileInputRef.current?.click();
+                }}
+              >
+                <Plus />
+              </InputGroupButton>
+              <InputGroupText className="ml-auto">52% used</InputGroupText>
+              <Separator orientation="vertical" className="h-4!" />
+              {status === "submitted" ? (
+                <StopButton setMessages={setMessages} stop={stop} />
+              ) : (
+                <InputGroupButton
+                  variant="default"
+                  className="rounded-full"
+                  size="icon-xs"
+                  disabled={!input.trim() || uploadQueue.length > 0}
+                >
+                  <Send />
+                  <span className="sr-only">Send</span>
+                </InputGroupButton>
+              )}
+            </InputGroupAddon>
+          </InputGroup>
         </div>
-      </form>
+      </div>
     </div>
   );
 }

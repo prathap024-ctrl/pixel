@@ -51,11 +51,17 @@ About the origin of user's request:
 `;
 
 export const systemPrompt = ({
+  selectedChatModel,
   requestHints,
 }: {
+  selectedChatModel: string;
   requestHints: RequestHints;
 }) => {
   const requestPrompt = getRequestPromptFromHints(requestHints);
+
+  if (selectedChatModel === "chat-model-reasoning") {
+    return `${regularPrompt}\n\n${requestPrompt}`;
+  }
 
   return `${regularPrompt}\n\n${requestPrompt}\n\n${artifactsPrompt}`;
 };
@@ -111,4 +117,4 @@ export const titlePrompt = `\n
     - you will generate a short title based on the first message a user begins a conversation with
     - ensure it is not more than 80 characters long
     - the title should be a summary of the user's message
-    - do not use quotes or colons`
+    - do not use quotes or colons`;

@@ -60,12 +60,12 @@ function PureMessages({
 
   return (
     <div
-      className="overscroll-behavior-contain -webkit-overflow-scrolling-touch flex-1 touch-pan-y overflow-y-scroll"
+      className="overscroll-behavior-contain -webkit-overflow-scrolling-touch py-2 flex-1 touch-pan-y overflow-y-scroll"
       ref={messagesContainerRef}
       style={{ overflowAnchor: "none" }}
     >
       <Conversation className="mx-auto flex min-w-0 max-w-2xl flex-col gap-4 md:gap-6">
-        <ConversationContent className="flex flex-col gap-4 px-2 py-4 md:gap-6 md:px-4">
+        <ConversationContent className="flex flex-col gap-4 px-2 py-4 md:gap-6 md:px-2">
           {messages.length === 0 && <Greeting />}
 
           {messages.map((message, index) => (

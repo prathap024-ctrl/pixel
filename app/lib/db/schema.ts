@@ -26,6 +26,7 @@ export const user = pgTable("user", {
   phone: text("phone").notNull(),
   plan: text("plan").default("free").notNull(),
 });
+export type User = InferSelectModel<typeof user>;
 
 export const session = pgTable("session", {
   id: text("id").primaryKey(),
