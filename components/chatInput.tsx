@@ -330,18 +330,7 @@ function PureMultimodalInput({
         </div>
 
         <div>
-          <InputGroup
-            onSubmit={(event: React.FormEvent<HTMLDivElement>) => {
-              event?.preventDefault();
-              if (status !== "ready") {
-                toast.error(
-                  "Please wait for the model to finish its response!"
-                );
-              } else {
-                submitForm();
-              }
-            }}
-          >
+          <InputGroup>
             {input.length > 150 ? (
               <InputGroupTextarea
                 placeholder="Ask, Search or Chat..."
@@ -385,6 +374,16 @@ function PureMultimodalInput({
                   className="rounded-full"
                   size="icon-xs"
                   disabled={!input.trim() || uploadQueue.length > 0}
+                  onSubmit={(event: React.FormEvent<HTMLButtonElement>) => {
+                    event?.preventDefault();
+                    if (status !== "ready") {
+                      toast.error(
+                        "Please wait for the model to finish its response!"
+                      );
+                    } else {
+                      submitForm();
+                    }
+                  }}
                 >
                   <Send />
                   <span className="sr-only">Send</span>
