@@ -262,6 +262,18 @@ function PureMultimodalInput({
     return () => textarea.removeEventListener("paste", handlePaste);
   }, [handlePaste]);
 
+  const handleSubmit = useCallback(
+    (event: React.FormEvent<HTMLButtonElement>) => {
+      event?.preventDefault();
+      if (status !== "ready") {
+        toast.error("Please wait for the model to finish its response!");
+      } else {
+        submitForm();
+      }
+    },
+    [submitForm, status]
+  );
+
   const handleKeyDown = useCallback(
     (event: React.KeyboardEvent<HTMLTextAreaElement | HTMLInputElement>) => {
       if (event.key === "Enter" && !event.shiftKey) {
@@ -376,16 +388,7 @@ function PureMultimodalInput({
                   className="rounded-full"
                   size="icon-xs"
                   disabled={!input.trim() || uploadQueue.length > 0}
-                  onSubmit={(event: React.FormEvent<HTMLButtonElement>) => {
-                    event?.preventDefault();
-                    if (status !== "ready") {
-                      toast.error(
-                        "Please wait for the model to finish its response!"
-                      );
-                    } else {
-                      submitForm();
-                    }
-                  }}
+                  onClick={handleSubmit}
                 >
                   <Send />
                   <span className="sr-only">Send</span>
