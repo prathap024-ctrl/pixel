@@ -33,7 +33,6 @@ import {
   InputGroupTextarea,
 } from "./ui/input-group";
 import { Separator } from "@radix-ui/react-separator";
-import { useDebounce } from "use-debounce";
 
 function PureMultimodalInput({
   chatId,
@@ -97,7 +96,6 @@ function PureMultimodalInput({
       setInput(finalValue);
       adjustHeight();
     }
-
   }, [adjustHeight, localStorageInput, setInput]);
 
   useEffect(() => {
@@ -112,28 +110,25 @@ function PureMultimodalInput({
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [uploadQueue, setUploadQueue] = useState<string[]>([]);
-  const [debouncedValue] = useDebounce(input, 500);
 
   const submitForm = useCallback(() => {
     window.history.pushState({}, "", `/chat/${chatId}`);
 
-    if (debouncedValue.trim()) {
-      sendMessage({
-        role: "user",
-        parts: [
-          ...attachments.map((attachment) => ({
-            type: "file" as const,
-            url: attachment.url,
-            name: attachment.name,
-            mediaType: attachment.contentType,
-          })),
-          {
-            type: "text",
-            text: debouncedValue,
-          },
-        ],
-      });
-    }
+    sendMessage({
+      role: "user",
+      parts: [
+        ...attachments.map((attachment) => ({
+          type: "file" as const,
+          url: attachment.url,
+          name: attachment.name,
+          mediaType: attachment.contentType,
+        })),
+        {
+          type: "text",
+          text: input,
+        },
+      ],
+    });
 
     setAttachments([]);
     setLocalStorageInput("");
@@ -144,6 +139,7 @@ function PureMultimodalInput({
       textareaRef.current?.focus();
     }
   }, [
+    input,
     setInput,
     attachments,
     sendMessage,
@@ -152,7 +148,6 @@ function PureMultimodalInput({
     width,
     chatId,
     resetHeight,
-    debouncedValue,
   ]);
 
   const uploadFile = useCallback(async (file: File) => {
