@@ -273,7 +273,9 @@ function PureMultimodalInput({
   );
 
   return (
-    <div className={cn("relative flex w-full flex-col gap-4", className)}>
+    <div
+      className={cn("relative bg-none flex w-full flex-col gap-4", className)}
+    >
       {messages.length === 0 &&
         attachments.length === 0 &&
         uploadQueue.length === 0 && (
@@ -293,10 +295,10 @@ function PureMultimodalInput({
       />
 
       <div>
-        <div>
+        <div className="p-2 bg-none">
           {(attachments.length > 0 || uploadQueue.length > 0) && (
             <div
-              className="grid grid-cols-10 gap-2 overflow-x-scroll"
+              className="grid md:grid-cols-8 grid-cols-4 gap-2 overflow-x-scroll"
               data-testid="attachments-preview"
             >
               {attachments.map((attachment) => (

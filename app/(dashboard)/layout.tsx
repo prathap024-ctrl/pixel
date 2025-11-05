@@ -29,7 +29,7 @@ function DashboardLayout({
           >
             <AppSidebar user={session?.user} />
             <SidebarInset className="dark:bg-black">
-              <div className="absolute w-full flex items-center justify-between md:py-4 py-2 px-4">
+              <div className="absolute w-full flex items-center justify-between py-4 px-4">
                 <div className="z-50 bg-white dark:bg-black rounded-full shadow-md">
                   <SidebarTrigger />
                 </div>

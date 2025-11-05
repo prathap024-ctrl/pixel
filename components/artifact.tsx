@@ -334,7 +334,6 @@ function PureArtifact({
                   <Composer
                     attachments={attachments}
                     chatId={chatId}
-                    className="bg-background dark:bg-muted"
                     input={input}
                     messages={messages}
                     selectedVisibilityType={selectedVisibilityType}

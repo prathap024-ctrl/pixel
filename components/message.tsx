@@ -67,11 +67,11 @@ const PurePreviewMessage = ({
           "justify-start": message.role === "assistant",
         })}
       >
-        {message.role === "assistant" && (
+        {/*         {message.role === "assistant" && (
           <div>
             <ThemedLogo className="size-4" />
           </div>
-        )}
+        )} */}
 
         <div
           className={cn("flex flex-col", {
@@ -129,7 +129,7 @@ const PurePreviewMessage = ({
                       className={cn({
                         "w-fit warp-break-word px-3 py-2 text-right text-white":
                           message.role === "user",
-                        "bg-transparent px-2 text-left":
+                        "bg-transparent rounded-none px-2 text-left":
                           message.role === "assistant",
                       })}
                       data-testid="message-content"

@@ -64,12 +64,12 @@ export function AppSidebar({ user, ...props }: { user: User | undefined }) {
   };
   return (
     <>
-      <Sidebar variant="floating" collapsible="icon" {...props}>
+      <Sidebar variant="inset" collapsible="icon" {...props}>
         <SidebarHeader>
           <SidebarMenu>
             <SidebarMenuItem>
               <div
-                className={`w-full flex items-center justify-evenly ${
+                className={`w-full pt-2 flex items-center justify-evenly ${
                   isOpen ? "gap-2" : "gap-0"
                 }`}
               >
